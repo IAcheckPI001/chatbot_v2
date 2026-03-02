@@ -205,8 +205,8 @@ def should_rewrite(q):
 
 def check_rewrite(q_norm, query_embedding, last_a_emb):
 
-    # if last_q_emb is None or last_a_emb is None:
-    #     return False
+    if query_embedding is None or last_a_emb is None:
+        return False
 
     # sim_q = cosine(current_emb, last_q_emb)
     sim_a = cosine(query_embedding, last_a_emb)
