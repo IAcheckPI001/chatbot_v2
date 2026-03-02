@@ -1,0 +1,8 @@
+Flask==2.3.0
+Flask-CORS==4.0.0
+python-dotenv
+supabase
+openai
+gunicorn
+numpy
+langchain-openai==0.1.25
