@@ -185,7 +185,7 @@ def update_alias(alias_id):
             "error": str(e)
         }), 500
 
-from flask import Response
+from flask import Response, stream_with_context
 import json
 from normalize import SINGLE_TOKEN_MAP, BANNED_KEYWORDS, expand_abbreviations, expand_context_sensitive, check_rewrite
 from model import rewrite_query, detect_query, llm_answer
@@ -314,7 +314,14 @@ def chat_stream():
                     session_history.clear()
                     yield f"data: {json.dumps({'replies': out_of_score_content, 'chunks': chunks})}\n\n"
             return
-    return Response(generate(), mimetype='text/event-stream')
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"  # cực quan trọng nếu có nginx
+        }
+    )
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
