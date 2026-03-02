@@ -206,7 +206,7 @@ def chat_stream():
         yield f"data: {json.dumps({'log': f'Nhận message...'})}\n\n"
         yield f"data: {json.dumps({'log': f'Kiểm tra viết tắt'})}\n\n"
         q = expand_context_sensitive(user_message)
-        q = expand_abbreviations(user_message, SINGLE_TOKEN_MAP)
+        q = expand_abbreviations(q, SINGLE_TOKEN_MAP)
         yield f"data: {json.dumps({'log': f'Câu hỏi hiện tại: {q}'})}\n\n"
         normalized_query = normalize_text(q)
         yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
@@ -221,7 +221,7 @@ def chat_stream():
         )
 
         if matched_keyword:
-            yield f"data: {json.dumps({'log': f'[Blocked] Query: {q} => keyword: {matched_keyword}'})}"
+            yield f"data: {json.dumps({'log': f'[Blocked] Query: {q} => keyword: {matched_keyword}'})}\n\n"
             return 
 
         query_embedding = get_embedding(q)
@@ -238,7 +238,11 @@ def chat_stream():
                 query_embedding = get_embedding(q)
                 normalized_query = normalize_text(q)
                 yield f"data: {json.dumps({'log': f'Câu hỏi hoàn chỉnh: {q}'})}\n\n"
-                
+
+        session_history.append({
+            "text": q,
+            "embedding": None
+        })
         yield f"data: {json.dumps({'log': f'Normalized: {normalized_query}'})}\n\n"
 
         category, subject = classify(normalized_query)
@@ -252,24 +256,29 @@ def chat_stream():
                 "p_tenant": "xa_ba_diem",
                 "p_category": category,
                 "p_subject": subject,
-                "p_limit": 10
+                "p_limit": 5
             }
         ).execute()
 
         chunks = response.data
 
+        if not chunks:
+            return
+        
+        chunks = chunks[:5]
+
         if category == "thu_tuc_hanh_chinh":
             chunks = apply_semantic_guard(normalized_query ,chunks)[:5]
         
         LOW_THRESHOLD = 0.27
-        HIGH_THRESHOLD = 0.45
+        HIGH_THRESHOLD = 0.5
         score = chunks[0]["score"] if chunks else 0
         context = f"### Tài liệu\n{chunks[0]['text_content']}"
 
         out_of_score_content = "Nội dung anh/chị hỏi nằm ngoài phạm vi hỗ trợ của hệ thống.\nAnh/chị vui lòng liên hệ đơn vị phù hợp hoặc đặt câu hỏi liên quan đến thủ tục hành chính để được hỗ trợ."
         complaint_content = "Thông tin của phán ánh sẽ được chuyển đến bộ phận chuyên môn để rà soát và cải thiện chất lượng phục vụ.\nCảm ơn anh/chị đã đóng góp ý kiến!"
 
-        if score > 0.6:
+        if score > HIGH_THRESHOLD:
             yield f"data: {json.dumps({'log': f'=> Được trả lời'})}\n\n"
             answer = llm_answer(q, context)
             session_history.append({
@@ -284,7 +293,7 @@ def chat_stream():
             yield f"data: {json.dumps({'replies': out_of_score_content, 'chunks': chunks})}\n\n"
             return
         
-        elif score < HIGH_THRESHOLD:
+        elif score <= HIGH_THRESHOLD:
             yield f"data: {json.dumps({'log': f'Sử dụng LLM kiểm tra phạm vi'})}\n\n"
             flow_query = detect_query(q)
             if flow_query in ["qa", "complaint", "out_of_scope"]:

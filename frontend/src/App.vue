@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 
-const API_BASE_URL = '/api'
+// const API_BASE_URL = '/api'
+// const API_BASE_URL = 'http://localhost:5000/api'
 // const API_URL = import.meta.env.VITE_API_URL
 // const API_BASE_URL = `${API_URL}/api`
 
@@ -1638,8 +1639,8 @@ textarea.edit-input {
   position: fixed;
   bottom: 14px;
   left: 426px;
-  width: 520px;
-  height: 200px;
+  width: 588px;
+  height: 228px;
   background: #111827;
   border-radius: 12px;
   display: flex;

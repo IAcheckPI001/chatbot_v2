@@ -21,7 +21,7 @@ CORE_GROUPS = {
 MODIFIERS = {
     "dang_ky_lai": ["dang ky lai", "cap lai", "lam lai"],
     "yeu_to_nuoc_ngoai": ["co yeu to nuoc ngoai", "nuoc ngoai"],
-    "da_co_ho_so": ["da co ho so", "giay to ca nhan", "giay to", "ho so"],
+    "da_co_ho_so": ["da co ho so", "da co giay to"],
 }
 
 OPPOSITE_PAIRS = [
