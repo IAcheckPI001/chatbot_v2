@@ -1,4 +1,3 @@
-
 services:
   backend:
     build:
@@ -6,16 +5,5 @@ services:
       dockerfile: Dockerfile.backend
     container_name: chatbot_backend
     restart: always
-    expose:
-      - "8000"
-
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    container_name: chatbot_frontend
-    restart: always
     ports:
-      - "80:80"
-    depends_on:
-      - backend
+      - "8000:8000"
