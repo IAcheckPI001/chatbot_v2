@@ -724,6 +724,26 @@ function stopDrag() {
             <option value="lanh_dao">lanh_dao</option>
             <option value="thong_tin_lien_he">thong_tin_lien_he</option>
             <option value="tong_quan">tong_quan</option>
+
+            <option value="nhan_su">nhan_su</option>
+            <option value="doanh_nghiep">doanh_nghiep</option>
+            <option value="giao_thong_van_tai">giao_thong_van_tai</option>
+            <option value="dat_dai">dat_dai</option>
+            <option value="xay_dung_nha_o">xay_dung_nha_o</option>
+            <option value="dau_tu">dau_tu</option>
+
+            <option value="lao_dong_viec_lam">lao_dong_viec_lam</option>
+            <option value="bao_hiem_an_sinh">bao_hiem_an_sinh</option>
+            <option value="giao_duc_dao_tao">giao_duc_dao_tao</option>
+            <option value="y_te">y_te</option>
+            <option value="tai_nguyen_moi_truong">tai_nguyen_moi_truong</option>
+            <option value="van_hoa_the_thao_du_lich">van_hoa_the_thao_du_lich</option>
+
+            <option value="khoa_hoc_cong_nghe">khoa_hoc_cong_nghe</option>
+            <option value="thong_tin_truyen_thong">thong_tin_truyen_thong</option>
+            <option value="nong_nghiep">nong_nghiep</option>
+            <option value="cong_thuong">cong_thuong</option>
+            <option value="tai_chinh_thue_phi">tai_chinh_thue_phi</option>
           </select>
         </div>
         <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''">Xóa bộ lọc</button>
