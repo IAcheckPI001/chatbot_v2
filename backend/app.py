@@ -191,8 +191,10 @@ from normalize import SINGLE_TOKEN_MAP, BANNED_KEYWORDS, expand_abbreviations, e
 from model import rewrite_query, detect_query, llm_answer
 from system import apply_semantic_guard
 from embedding import get_embedding
+from utils import SUBJECT_KEYWORDS, prepare_subject_keywords
 
 session_history = []
+PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
 
 @app.route('/api/chat-stream', methods=['POST'])
 def chat_stream():
@@ -200,6 +202,8 @@ def chat_stream():
     # ✅ LẤY DATA TRƯỚC
     data = request.json
     user_message = data.get('message', '').strip()
+    use_llm = data.get('use_llm', False)
+    chunk_generate = data.get("chunk_limit", 1)
 
     def generate():
 
@@ -245,7 +249,7 @@ def chat_stream():
         })
         yield f"data: {json.dumps({'log': f'Normalized: {normalized_query}'})}\n\n"
 
-        category, subject = classify(normalized_query)
+        category, subject = classify(normalized_query, PREPARED)
         yield f"data: {json.dumps({'log': f'Category: {category}, Subject: {subject}'})}\n\n"
 
         response = supabase.rpc(
@@ -274,18 +278,30 @@ def chat_stream():
         HIGH_THRESHOLD = 0.5
         score = chunks[0]["score"] if chunks else 0
         context = f"### Tài liệu\n{chunks[0]['text_content']}"
+        if chunk_generate > 1:
+            context = "\n\n".join(
+                f"### Tài liệu {i+1}\n{chunk['text_content']}"
+                for i, chunk in enumerate(chunks[:chunk_generate])
+            )
+        print(context)
 
         out_of_score_content = "Nội dung anh/chị hỏi nằm ngoài phạm vi hỗ trợ của hệ thống.\nAnh/chị vui lòng liên hệ đơn vị phù hợp hoặc đặt câu hỏi liên quan đến thủ tục hành chính để được hỗ trợ."
         complaint_content = "Thông tin của phán ánh sẽ được chuyển đến bộ phận chuyên môn để rà soát và cải thiện chất lượng phục vụ.\nCảm ơn anh/chị đã đóng góp ý kiến!"
 
         if score > HIGH_THRESHOLD:
             yield f"data: {json.dumps({'log': f'=> Được trả lời'})}\n\n"
-            answer = llm_answer(q, context)
-            session_history.append({
-                "text": answer,
-                "embedding": get_embedding(answer)
-            })
+            answer = "\n\n".join(
+                f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
+                for i, chunk in enumerate(chunks[:chunk_generate])
+            )
+            if use_llm:
+                answer = llm_answer(q, context)
+                session_history.append({
+                    "text": answer,
+                    "embedding": get_embedding(answer)
+                })
             yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
+
             return
 
         elif score < LOW_THRESHOLD:
@@ -299,11 +315,16 @@ def chat_stream():
             if flow_query in ["qa", "complaint", "out_of_scope"]:
                 if flow_query == "qa":
                     yield f"data: {json.dumps({'log': f'=> Được trả lời'})}\n\n"
-                    answer = llm_answer(q, context)
-                    session_history.append({
-                        "text": answer,
-                        "embedding": get_embedding(answer)
-                    })
+                    answer = "\n\n".join(
+                        f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
+                        for i, chunk in enumerate(chunks[:chunk_generate])
+                    )
+                    if use_llm:
+                        answer = llm_answer(q, context)
+                        session_history.append({
+                            "text": answer,
+                            "embedding": get_embedding(answer)
+                        })
                     yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
                 if flow_query == "complaint":
                     yield f"data: {json.dumps({'log': f'=> Phản hồi góp ý'})}\n\n"

@@ -1,6 +1,7 @@
 
 import re
 import unicodedata
+from collections import defaultdict
 
 
 THU_TUC_KEYWORDS = [
@@ -131,6 +132,241 @@ LICH_LAM_VIEC_KEYWORDS = [
     "may gio",
 ]
 
+SUBJECT_KEYWORDS = {
+
+    "tu_phap_ho_tich": [
+        "khai sinh",
+        "khai tử",
+        "kết hôn",
+        "thay đổi hộ tịch",
+        "cải chính hộ tịch",
+        "xác nhận tình trạng hôn nhân",
+        "nuôi con nuôi",
+        "chứng thực bản sao",
+        "chứng thực chữ ký",
+        "chứng thực hợp đồng",
+        "quốc tịch",
+        "nhan cha me con",
+        "giam ho",
+        "cham dut giam ho",
+        "ghi vao so ho tich",
+        "xac nhan ho tich",
+        "trich luc ho tich",
+    ],
+
+    "dat_dai": [
+        "đăng ký đất đai lần đầu",
+        "đăng ký đất đai",
+        "giay chung nhan quyen su dung dat",
+        "quyen su dung dat",
+        "sổ đỏ",
+        "sổ hồng",
+        "chuyển nhượng quyền sử dụng đất",
+        "tặng cho quyền sử dụng đất",
+        "thừa kế quyền sử dụng đất",
+        "chuyển mục đích sử dụng đất",
+        "gia hạn thời hạn sử dụng đất",
+        "thu hồi đất",
+        "bồi thường tái định cư",
+        "hỗ trợ tái định cư",
+        "cung cấp thông tin đất đai",
+    ],
+
+    "xay_dung_nha_o": [
+        "cấp phép xây dựng",
+        "giấy phép xây dựng",
+        "điều chỉnh giấy phép xây dựng",
+        "hoàn công",
+        "cấp chứng nhận nhà ở",
+        "cải tạo công trình",
+        "sửa chữa công trình",
+        "nhà ở xã hội",
+        "quản lý chung cư",
+        "quy hoach xay dung"
+    ],
+
+    "dau_tu": [
+        "chủ trương đầu tư",
+        "quyết định chủ trương đầu tư",
+        "giấy chứng nhận đăng ký đầu tư",
+        "điều chỉnh dự án đầu tư",
+        "chấm dứt hoạt động dự án",
+        "ưu đãi đầu tư",
+        "hỗ trợ đầu tư",
+        "giám sát đầu tư",
+        "đánh giá đầu tư"
+    ],
+
+    "doanh_nghiep": [
+        "đăng ký thành lập doanh nghiệp",
+        "đăng ký kinh doanh",
+        "thay đổi nội dung đăng ký kinh doanh",
+        "tạm ngừng kinh doanh",
+        "giải thể doanh nghiệp",
+        "chuyển đổi loại hình doanh nghiệp",
+        "cấp lại giấy chứng nhận đăng ký doanh nghiệp",
+        "thu hồi giấy chứng nhận đăng ký doanh nghiệp",
+        "công bố thông tin doanh nghiệp",
+        "ho kinh doanh",
+        "hop tac xa",
+        "to hop tac",
+        "chi nhanh",
+        "van phong dai dien",
+        "dia diem kinh doanh",
+    ],
+
+    "lao_dong_viec_lam": [
+        "hợp đồng lao động",
+        "tranh chấp lao động",
+        "thang bảng lương",
+        "an toàn lao động",
+        "vệ sinh lao động",
+        "giấy phép lao động",
+        "lao động nước ngoài",
+        "việc làm",
+        "đào tạo nghề"
+    ],
+
+    "bao_hiem_an_sinh": [
+        "bảo hiểm xã hội",
+        "bảo hiểm y tế",
+        "bảo hiểm thất nghiệp",
+        "trợ cấp xã hội",
+        "người có công",
+        "giảm nghèo",
+        "tro cap",
+        "bao tro xa hoi",
+        "mai tang",
+        "tien tuat",
+        "bảo vệ trẻ em",
+        "tre em bi xam hai",
+        "cham soc thay the",
+        "nhan cham soc thay the",
+        "can thiep tre em",
+    ],
+
+    "giao_duc_dao_tao": [
+        "thành lập cơ sở giáo dục",
+        "cấp phép hoạt động giáo dục",
+        "công nhận văn bằng",
+        "công nhận chứng chỉ",
+        "liên kết đào tạo",
+        "tuyển sinh",
+        "kiểm định chất lượng giáo dục",
+        "chuyen truong",
+        "hoc bong",
+        "ho tro hoc tap",
+        "tuyen sinh trung hoc",
+    ],
+
+    "y_te": [
+        "cấp phép hành nghề y",
+        "cấp phép hành nghề dược",
+        "cấp phép cơ sở khám chữa bệnh",
+        "quản lý thuốc",
+        "quản lý mỹ phẩm",
+        "trang thiết bị y tế",
+        "an toàn thực phẩm",
+        "phòng chống dịch bệnh",
+        "giám định y khoa"
+    ],
+
+    "giao_thong_van_tai": [
+        "đăng ký phương tiện",
+        "đăng kiểm",
+        "giấy phép lái xe",
+        "kinh doanh vận tải",
+        "kết cấu hạ tầng giao thông",
+        "vận tải quốc tế",
+        "duong bo",
+        "ben thuy",
+        "cang",
+        "dau noi",
+        "an toan giao thong",
+    ],
+
+    "tai_nguyen_moi_truong": [
+        "đánh giá tác động môi trường",
+        "cam kết môi trường",
+        "tài nguyên nước",
+        "khoáng sản",
+        "khí tượng thủy văn",
+        "biển và hải đảo",
+        "biến đổi khí hậu",
+        "khai thác nước",
+        "thiên tai",
+        "ứng phó thiên tai"
+    ],
+
+    "van_hoa_the_thao_du_lich": [
+        "nghệ thuật biểu diễn",
+        "quảng cáo",
+        "xuất bản",
+        "in ấn",
+        "thể dục thể thao",
+        "lữ hành",
+        "lưu trú du lịch",
+        "di sản văn hóa",
+        "cau lac bo the thao",
+        "hoat dong van hoa",
+        "lễ hội"
+    ],
+
+    "khoa_hoc_cong_nghe": [
+        "nhiệm vụ khoa học công nghệ",
+        "sở hữu trí tuệ",
+        "tiêu chuẩn đo lường chất lượng",
+        "công nghệ cao",
+        "chuyển giao công nghệ",
+        "an toàn bức xạ",
+        "an toàn hạt nhân"
+    ],
+
+    "thong_tin_truyen_thong": [
+        "báo chí",
+        "phát thanh",
+        "truyền hình",
+        "xuất bản điện tử",
+        "viễn thông",
+        "internet",
+        "mạng xã hội",
+        "an toàn thông tin"
+    ],
+
+    "nong_nghiep": [
+        "trồng trọt",
+        "chăn nuôi",
+        "thủy sản",
+        "thú y",
+        "bảo vệ thực vật",
+        "lâm nghiệp",
+        "xây dựng nông thôn mới",
+        "cây trồng",
+        "vật nuôi",
+        "đất trồng lúa"
+    ],
+
+    "cong_thuong": [
+        "xuất nhập khẩu",
+        "quản lý thị trường",
+        "điện lực",
+        "hóa chất",
+        "an toàn công nghiệp",
+        "xúc tiến thương mại",
+        "ruou",
+        "thuoc la",
+        "ban le ruou",
+        "san xuat ruou",
+    ],
+
+    "tai_chinh_thue_phi": [
+        "thuế",
+        "hải quan",
+        "ngân sách",
+        "tài sản công"
+    ]
+}
+
 def normalize_text(text: str) -> str:
     # Bỏ dấu tiếng Việt
     text = unicodedata.normalize("NFD", text)
@@ -154,7 +390,73 @@ def normalize_text(text: str) -> str:
     # Chuẩn hóa lowercase + trim
     return text.lower().strip()
 
-def classify(q: str):
+def normalize_text_q(text: str) -> str:
+    text = unicodedata.normalize("NFD", text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+
+    text = text.replace('Đ', 'D').replace('đ', 'd')
+
+    text = re.sub(r"[^\w\s]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+
+    return text.lower().strip()
+
+def prepare_subject_keywords(subject_keywords):
+    prepared = {}
+
+    for subject, keywords in subject_keywords.items():
+        normalized_keywords = []
+
+        for kw in keywords:
+            kw_norm = normalize_text(kw)
+
+            # Trọng số cơ bản = số từ
+            weight = len(kw_norm.split())
+
+            # Boost nếu cụm dài >= 3 từ
+            if weight >= 3:
+                weight += 1
+
+            normalized_keywords.append((kw_norm, weight))
+
+        # Sắp xếp cụm dài trước
+        normalized_keywords.sort(key=lambda x: len(x[0]), reverse=True)
+
+        prepared[subject] = normalized_keywords
+
+    return prepared
+
+def detect_subject(text_norm, prepared_keywords, min_score=2):
+
+    subject_scores = defaultdict(int)
+
+    for subject, keywords in prepared_keywords.items():
+        for kw, weight in keywords:
+
+            # Match theo word boundary để tránh match nhầm
+            pattern = r'\b' + re.escape(kw) + r'\b'
+
+            if re.search(pattern, text_norm):
+                subject_scores[subject] += weight
+
+    if not subject_scores:
+        return None, 0
+
+    # Lấy subject có điểm cao nhất
+    best_subject = max(subject_scores, key=subject_scores.get)
+    best_score = subject_scores[best_subject]
+
+    # Threshold chống match yếu
+    if best_score < min_score:
+        return None, 0
+
+    # Confidence
+    total_score = sum(subject_scores.values())
+    confidence = round(best_score / total_score, 3)
+
+    return best_subject, confidence
+
+def classify(q: str, PREPARED):
 
     # --- Scores ---
     thu_tuc_score = sum(1 for kw in THU_TUC_KEYWORDS if kw in q)
@@ -167,7 +469,8 @@ def classify(q: str):
 
     # --- 1️⃣ Ưu tiên thủ tục ---
     if thu_tuc_score >= 1:
-        return "thu_tuc_hanh_chinh", "tu_phap_ho_tich"
+        subject, confidence  = detect_subject(q, PREPARED)
+        return "thu_tuc_hanh_chinh", subject
 
     if lich_score >= 1:
         return "thong_tin_phuong", "lich_lam_viec"

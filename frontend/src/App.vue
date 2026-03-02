@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount , watch, nextTick } from 'vue'
 
 const API_BASE_URL = '/api'
 // const API_BASE_URL = 'http://localhost:5000/api'
 // const API_URL = import.meta.env.VITE_API_URL
 // const API_BASE_URL = `${API_URL}/api`
-
+const chunkLimit = ref(1)
 const isOpen = ref(false)
 const userInput = ref('')
 const isLoading = ref(false)
@@ -17,8 +17,19 @@ const isDeleteModalOpen = ref(false)
 const isSaving = ref(false)
 const deleteTargetId = ref<string | null>(null)
 const chatBody = ref<HTMLElement | null>(null)
-  
+const isLLMEnabled = ref(false) // mặc định bật
+const showSettings = ref(false)
+const settingsRef = ref<HTMLElement | null>(null)
 
+// đóng khi click ngoài
+function handleClickOutside(event: MouseEvent) {
+  if (
+    settingsRef.value &&
+    !settingsRef.value.contains(event.target as Node)
+  ) {
+    showSettings.value = false
+  }
+}
 
 const newAlias = ref({
   alias_text: '',
@@ -92,7 +103,7 @@ async function sendMessage() {
     const res = await fetch(`${API_BASE_URL}/chat-stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text })
+      body: JSON.stringify({ message: text, use_llm: isLLMEnabled.value, chunk_limit: chunkLimit.value })
     })
 
     const reader = res.body!.getReader()
@@ -453,8 +464,13 @@ function closeCreateModal() {
   }
 }
 
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
+
 onMounted(() => {
   loadData()
+  document.addEventListener('click', handleClickOutside)
 });
 
 
@@ -795,6 +811,30 @@ function stopDrag() {
           <span class="dot"></span>
           Chatbot 1.0
         </div>
+        <!-- ⚙ Setting button -->
+    <!-- Dropdown -->
+    <div v-if="showSettings = true" class="settings-dropdown">
+      
+      <!-- Toggle LLM -->
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" v-model="isLLMEnabled" />
+          Sử dụng LLM trả lời
+        </label>
+      </div>
+
+        <!-- Chunk limit -->
+        <div class="setting-item">
+          <label>Số chunks trả lời: </label>
+          <input 
+            type="number" 
+            v-model.number="chunkLimit"
+            min="1"
+            max="6"
+          />
+        </div>
+
+      </div>
         <button class="close-btn" @click="isOpen = false">✕</button>
       </div>
 
