@@ -1,8 +1,9 @@
 
 import re
-import unicodedata
 from collections import defaultdict
+from normalize import AbbreviationResolver, normalize_text
 
+normalize_system = AbbreviationResolver()
 
 THU_TUC_KEYWORDS = [
     "thu tuc",
@@ -20,7 +21,9 @@ THU_TUC_KEYWORDS = [
     "nop truc tuyen",
     "truc tuyen",
     "giay to",
-    "le phi"
+    "le phi",
+    "giay phep",
+    "quy hoach dat"
 ]
 
 PHUONG_INFO_KEYWORDS = [
@@ -98,6 +101,7 @@ CONTACT_INFO_KEYWORDS = [
     "fanpage",
     "so dien thoai",
     "dia chi",
+    "nam o dau",
     "goi dien",
     "zalo",
 ]
@@ -213,6 +217,7 @@ SUBJECT_KEYWORDS = {
         "chi nhanh",
         "van phong dai dien",
         "dia diem kinh doanh",
+        "giấy phép kinh doanh"
     ],
 
     "lao_dong_viec_lam": [
@@ -356,6 +361,7 @@ SUBJECT_KEYWORDS = {
         "ruou",
         "thuoc la",
         "ban le ruou",
+        "ban ruou",
         "san xuat ruou",
     ],
 
@@ -366,40 +372,6 @@ SUBJECT_KEYWORDS = {
         "tài sản công"
     ]
 }
-
-def normalize_text(text: str) -> str:
-    # Bỏ dấu tiếng Việt
-    text = unicodedata.normalize("NFD", text)
-    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
-
-    text = re.sub(r"[^\w\s]", "", text)
-
-    text = text.replace("  ", " ")
-    
-    # Thay _ thành khoảng trắng
-    text = text.replace('_', ' ')
-
-    # Thay . thành khoảng trắng
-    text = text.replace('.', ' ')
-
-    text = text.replace('Đ', 'D')
-    text = text.replace('đ', 'd')
-
-    text = text.replace(',', '')
-    
-    # Chuẩn hóa lowercase + trim
-    return text.lower().strip()
-
-def normalize_text_q(text: str) -> str:
-    text = unicodedata.normalize("NFD", text)
-    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
-
-    text = text.replace('Đ', 'D').replace('đ', 'd')
-
-    text = re.sub(r"[^\w\s]", " ", text)
-    text = re.sub(r"\s+", " ", text)
-
-    return text.lower().strip()
 
 def prepare_subject_keywords(subject_keywords):
     prepared = {}
@@ -474,6 +446,9 @@ def classify(q: str, PREPARED):
 
     if lich_score >= 1:
         return "thong_tin_phuong", "lich_lam_viec"
+    
+    if contact_score >= 1:
+        return "thong_tin_phuong", "thong_tin_lien_he"
 
     # --- 2️⃣ Subject level ---
     if lanh_dao_score >= 1:
@@ -487,9 +462,6 @@ def classify(q: str, PREPARED):
     
     if nhan_su_score >= 1:
         return "thong_tin_phuong", "nhan_su"
-
-    if contact_score >= 1:
-        return "thong_tin_phuong", "thong_tin_lien_he"
 
     # --- 3️⃣ Fallback ---
     if phuong_info_score >= 1:

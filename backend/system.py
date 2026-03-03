@@ -111,7 +111,7 @@ def apply_semantic_guard(q_norm, results):
     for r in results:
         doc_norm = normalize_text(r["text_content"])
         adjust = semantic_guard_adjust(query_cores, query_mods, doc_norm)
-        r["score"] += adjust
+        r["confidence_score"] += adjust
 
-    results.sort(key=lambda x: x["score"], reverse=True)
+    results.sort(key=lambda x: x["confidence_score"], reverse=True)
     return results
