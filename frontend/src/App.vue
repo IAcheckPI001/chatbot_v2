@@ -20,6 +20,7 @@ const chatBody = ref<HTMLElement | null>(null)
 const isLLMEnabled = ref(false) // mặc định bật
 const showSettings = ref(false)
 const settingsRef = ref<HTMLElement | null>(null)
+const sessionId = crypto.randomUUID()
 
 // đóng khi click ngoài
 function handleClickOutside(event: MouseEvent) {
@@ -29,6 +30,18 @@ function handleClickOutside(event: MouseEvent) {
   ) {
     showSettings.value = false
   }
+}
+
+async function clearChat() {
+  await fetch(`${API_BASE_URL}/clear-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId })
+  })
+
+  messages.value = [
+    { text: 'Xin chào! Tôi là trợ lý AI của UBND Phường.', from: 'bot' }
+  ]
 }
 
 const newAlias = ref({
@@ -133,12 +146,14 @@ async function sendMessage() {
         }
       })
     }
+    isSaving.value = false
   } catch (error: any) {
     apiError.value = `Connection error: ${error.message}`
     messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
   } finally {
     isLoading.value = false
     isSaving.value = false
+    loadLogs(true)
   }
 }
 
@@ -190,11 +205,13 @@ async function sendMessage() {
 //     isSaving.value = false
 //   }
 // }
-const responses = ref<Array<{id: string; text_content: string; score: number}>>([])
+const responses = ref<Array<{id: string; text_content: string; confidence_score: number}>>([])
 const chunksData = ref<Array<any>>([])
 const aliasData = ref<Array<any>>([])
+const logsData = ref<Array<any>>([])
 const categoryFilter = ref<string>('')
 const subjectFilter = ref<string>('')
+const typeLogFilter = ref<string>('')
 const editingId = ref<string | null>(null)
 const editingData = ref<any>(null)
 const activeSection = ref("chunks");
@@ -228,6 +245,21 @@ const filteredAlias = computed(() => {
   })
 })
 
+
+const filteredLog = computed(() => {
+  return logsData.value.filter(item => {
+    const typeLogMatch = !typeLogFilter.value || item.event_type === typeLogFilter.value
+
+    const keywordMatch =
+      !searchKeyword.value ||
+      item.raw_query
+        ?.toLowerCase()
+        .includes(searchKeyword.value.toLowerCase())
+
+    return typeLogMatch && keywordMatch
+  })
+})
+
 function highlightText(text: string) {
   if (!searchKeyword.value) return text
 
@@ -254,6 +286,31 @@ async function loadChunks($load: boolean) {
       const data = await response.json()
       console.log('Chunks data:', data)
       chunksData.value = data.chunks || []
+    } catch (error: any) {
+      apiError.value = `Connection error: ${error.message}`
+    } finally {
+      isLoading.value = false
+    }
+  }
+}
+
+async function loadLogs($load: boolean) {
+  isLoading.value = true
+  apiError.value = ''
+  if ($load || logsData.value.length === 0){
+    try {
+      const response = await fetch(`${API_BASE_URL}/get-logs`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      console.log('Logs data:', data)
+      logsData.value = data.logs || []
     } catch (error: any) {
       apiError.value = `Connection error: ${error.message}`
     } finally {
@@ -302,6 +359,11 @@ const viewChunks = () => {
 const viewAlias = () => {
   activeSection.value = 'alias';
   loadAlias(false);
+};
+
+const viewLogs = () => {
+  activeSection.value = 'log';
+  loadLogs(false);
 };
 
 function startEdit(item: any) {
@@ -555,11 +617,17 @@ function stopDrag() {
           :class="{ active: activeSection === 'alias' }"
           @click="viewAlias()"
         >Dữ liệu alias</div>
+        <div class="menu-section">Kiểm thử</div>
         <div 
           class="menu-item" 
           :class="{ active: activeSection === 'test' }"
           @click="activeSection = 'test'"
-        >Kiểm thử</div>
+        >Xử lý Chat</div>
+        <div 
+          class="menu-item" 
+          :class="{ active: activeSection === 'log' }"
+          @click="viewLogs()"
+        >Logs</div>
       </div>
     </aside>
     <!-- :class="{ 'with-chat': isOpen = true } -->
@@ -588,7 +656,7 @@ function stopDrag() {
                   </div>
                 </td>
                 <td class="col-scope">
-                  <span class="badge">{{ item.score }}</span>
+                  <span class="badge">{{ item.confidence_score }}</span>
                 </td>
               </tr>
             </tbody>
@@ -695,6 +763,87 @@ function stopDrag() {
       </div>
     </section>
 
+    <section class="data-chunks-table" v-if="activeSection === 'log'" :class="{ 'with-chat': isOpen }">
+      <!-- Search -->
+      <div class="search-box">
+        <input 
+          v-model="searchKeyword"
+          type="text" 
+          placeholder="Tìm kiếm nội dung..." 
+        />
+      </div>
+      <div class="filter-group" style="margin: 18px;">
+          <label>Loại log:</label>
+          <select v-model="typeLogFilter" class="filter-select">
+            <option value="">Tất cả</option>
+            <option value="complaint">complaint</option>
+            <option value="out_of_scope">out_of_scope</option>
+            <option value="low_confidence">low_confidence</option>
+            
+          </select>
+        <button class="btn-reset-filter" @click="typeLogFilter = '';">Xóa bộ lọc</button>
+      </div>
+      <div class="filter-result">Tìm thấy {{ filteredLog.length }} / {{ filteredLog.length }} kết quả</div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th class="col-index">ID</th>
+              <th class="col-question">Câu hỏi</th>
+              <th class="col-question">Câu hỏi đã chuẩn hóa</th>
+              <th class="col-index">Loại phản hồi</th>
+              <th class="col-reason">Lý do</th>
+              <th class="col-index">Điểm so Alias</th>
+              <th class="col-index">Điểm so tài liệu</th>
+              <th class="col-index">Điểm tổng</th>
+              <th class="col-index">Thời gian phản hồi</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr v-if="filteredLog.length === 0">
+              <td colspan="5" style="text-align: center; padding: 20px; color: #999;">
+                {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
+              </td>
+            </tr>
+            <tr v-for="(item, idx) in filteredLog" :key="idx">
+              <td class="col-index">{{ idx + 1 }}</td>
+              <td class="col-content" style="width: 40%;">
+                <div 
+                  class="content-text"
+                  v-html="highlightText(item.raw_query)"
+                ></div>
+              </td>
+              <td class="col-content" style="width: 40%;">
+                <div 
+                  class="content-text"
+                  v-html="highlightText(item.expanded_query)"
+                ></div>
+              </td>
+              <td class="col-index">
+                <span>{{ item.event_type || '-' }}</span>
+              </td>
+              <td class="col-content">
+                <span>{{ item.reason || '-' }}</span>
+              </td>
+              <td class="col-index">
+                <span>{{ item.alias_score || '-' }}</span>
+              </td>
+              <td class="col-index">
+                <span>{{ item.document_score || '-' }}</span>
+              </td>
+              <td class="col-index">
+                <span>{{ item.confidence || '-' }}</span>
+              </td>
+              <td class="col-index">
+                <span>{{ item.response_time_ms || '-' }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="data-chunks-table" v-if="activeSection === 'chunks'" :class="{ 'with-chat': isOpen }">
       <!-- Search -->
       <div class="search-box">
@@ -716,34 +865,36 @@ function stopDrag() {
         </div>
         <div class="filter-group">
           <label>Subject:</label>
-          <select v-model="subjectFilter" class="filter-select">
+          <select v-if="categoryFilter == 'thu_tuc_hanh_chinh'" v-model="subjectFilter" class="filter-select">
             <option value="">Tất cả</option>
             <option value="tu_phap_ho_tich">tu_phap_ho_tich</option>
-            <option value="thong_tin_khu_pho">thong_tin_khu_pho</option>
-            <option value="lich_lam_viec">lich_lam_viec</option>
-            <option value="lanh_dao">lanh_dao</option>
-            <option value="thong_tin_lien_he">thong_tin_lien_he</option>
-            <option value="tong_quan">tong_quan</option>
-
-            <option value="nhan_su">nhan_su</option>
             <option value="doanh_nghiep">doanh_nghiep</option>
             <option value="giao_thong_van_tai">giao_thong_van_tai</option>
             <option value="dat_dai">dat_dai</option>
             <option value="xay_dung_nha_o">xay_dung_nha_o</option>
             <option value="dau_tu">dau_tu</option>
-
+            
             <option value="lao_dong_viec_lam">lao_dong_viec_lam</option>
             <option value="bao_hiem_an_sinh">bao_hiem_an_sinh</option>
             <option value="giao_duc_dao_tao">giao_duc_dao_tao</option>
             <option value="y_te">y_te</option>
             <option value="tai_nguyen_moi_truong">tai_nguyen_moi_truong</option>
             <option value="van_hoa_the_thao_du_lich">van_hoa_the_thao_du_lich</option>
-
+            
             <option value="khoa_hoc_cong_nghe">khoa_hoc_cong_nghe</option>
             <option value="thong_tin_truyen_thong">thong_tin_truyen_thong</option>
             <option value="nong_nghiep">nong_nghiep</option>
             <option value="cong_thuong">cong_thuong</option>
             <option value="tai_chinh_thue_phi">tai_chinh_thue_phi</option>
+          </select>
+          <select v-if="categoryFilter == 'thong_tin_phuong'" v-model="subjectFilter" class="filter-select">
+            <option value="">Tất cả</option>
+            <option value="thong_tin_khu_pho">thong_tin_khu_pho</option>
+            <option value="lich_lam_viec">lich_lam_viec</option>
+            <option value="thong_tin_lien_he">thong_tin_lien_he</option>
+            <option value="tong_quan">tong_quan</option>
+            <option value="nhan_su">nhan_su</option>
+            <option value="lanh_dao">lanh_dao</option>
           </select>
         </div>
         <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''">Xóa bộ lọc</button>
@@ -791,16 +942,42 @@ function stopDrag() {
                 <span v-else>{{ item.category || '-' }}</span>
               </td>
               <td class="col-index">
-                <div v-if="editingId === item.id" class="edit-input-wrapper">
-                  <select v-model="editingData.subject" class="edit-input edit-select">
-                    <option value="">-- Chọn --</option>
-                    <option value="tu_phap_ho_tich">tu_phap_ho_tich</option>
-                    <option value="thong_tin_khu_pho">thong_tin_khu_pho</option>
-                    <option value="lich_lam_viec">lich_lam_viec</option>
-                    <option value="lanh_dao">lanh_dao</option>
-                    <option value="thong_tin_lien_he">thong_tin_lien_he</option>
-                    <option value="tong_quan">tong_quan</option>
-                  </select>
+                <div v-if="editingId === item.id">
+                    <div v-if="item.category === 'thu_tuc_hanh_chinh'" class="edit-input-wrapper">
+                      <select v-model="editingData.subject" class="edit-input edit-select">
+                        <option value="">-- Chọn --</option>
+                        <option value="tu_phap_ho_tich">tu_phap_ho_tich</option>
+                        <option value="doanh_nghiep">doanh_nghiep</option>
+                        <option value="giao_thong_van_tai">giao_thong_van_tai</option>
+                        <option value="dat_dai">dat_dai</option>
+                        <option value="xay_dung_nha_o">xay_dung_nha_o</option>
+                        <option value="dau_tu">dau_tu</option>
+                        
+                        <option value="lao_dong_viec_lam">lao_dong_viec_lam</option>
+                        <option value="bao_hiem_an_sinh">bao_hiem_an_sinh</option>
+                        <option value="giao_duc_dao_tao">giao_duc_dao_tao</option>
+                        <option value="y_te">y_te</option>
+                        <option value="tai_nguyen_moi_truong">tai_nguyen_moi_truong</option>
+                        <option value="van_hoa_the_thao_du_lich">van_hoa_the_thao_du_lich</option>
+                        
+                        <option value="khoa_hoc_cong_nghe">khoa_hoc_cong_nghe</option>
+                        <option value="thong_tin_truyen_thong">thong_tin_truyen_thong</option>
+                        <option value="nong_nghiep">nong_nghiep</option>
+                        <option value="cong_thuong">cong_thuong</option>
+                        <option value="tai_chinh_thue_phi">tai_chinh_thue_phi</option>
+                      </select>
+                    </div>
+                    <div v-else class="edit-input-wrapper">
+                      <select v-model="editingData.subject" class="edit-input edit-select">
+                        <option value="">-- Chọn --</option>
+                        <option value="thong_tin_khu_pho">thong_tin_khu_pho</option>
+                        <option value="lich_lam_viec">lich_lam_viec</option>
+                        <option value="thong_tin_lien_he">thong_tin_lien_he</option>
+                        <option value="tong_quan">tong_quan</option>
+                        <option value="nhan_su">nhan_su</option>
+                        <option value="lanh_dao">lanh_dao</option>
+                      </select>
+                    </div>
                 </div>
                 <span v-else>{{ item.subject || '-' }}</span>
               </td>
@@ -855,6 +1032,9 @@ function stopDrag() {
         </div>
 
       </div>
+        <button class="close-btn" @click="clearChat()" title="xóa lịch sử hội thoại">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw w-4 h-4"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>
+        </button>
         <button class="close-btn" @click="isOpen = false">✕</button>
       </div>
 
@@ -1375,6 +1555,17 @@ body{
   width: 100%;
   border-collapse: collapse;
   table-layout: auto;
+  min-width: 1700px; /* tăng chút cho đủ chỗ */
+}
+
+.col-question {
+  min-width: 350px;
+  width: 350px;
+}
+
+.col-reason {
+  min-width: 500px;
+  width: 500px;
 }
 
 .data-chunks-table thead {
@@ -1763,7 +1954,13 @@ textarea.edit-input {
 
 .table-scroll {
   flex: 1;
+  overflow-x: auto;   /* QUAN TRỌNG */
   overflow-y: auto;
+}
+
+.table-scroll table {
+  min-width: 1600px;
+  border-collapse: collapse;
 }
 
 /* Giữ header dính trên */
