@@ -84,42 +84,44 @@ Câu hỏi: "{query}"
         return query
 
 CATEGORIES = [
-    "thong_tin_phuong",
+    "thong_tin_tong_quan",
+    "to_chuc_bo_may",
     "thu_tuc_hanh_chinh"
 ]
 
 SUBJECTS = [
     "tu_phap_ho_tich",
-"thong_tin_khu_pho",
-"lich_lam_viec",
-"lanh_dao",
-"thong_tin_lien_he",
-"tong_quan",
-"nhan_su",
-"doanh_nghiep",
-"giao_thong_van_tai",
-"dat_dai",
-"xay_dung_nha_o",
-"dau_tu",
-"lao_dong_viec_lam",
-"bao_hiem_an_sinh",
-"giao_duc_dao_tao",
-"y_te",
-"tai_nguyen_moi_truong",
-"van_hoa_the_thao_du_lich",
-"khoa_hoc_cong_nghe",
-"thong_tin_truyen_thong",
-"nong_nghiep",
-"cong_thuong",
-"tai_chinh_thue_phi",
+    "thong_tin_khu_pho",
+    "lich_lam_viec",
+    "chuc_vu",
+    "thong_tin_lien_he",
+    "tong_quan",
+    "nhan_su",
+    "doanh_nghiep",
+    "giao_thong_van_tai",
+    "dat_dai",
+    "xay_dung_nha_o",
+    "dau_tu",
+    "lao_dong_viec_lam",
+    "bao_hiem_an_sinh",
+    "giao_duc_dao_tao",
+    "y_te",
+    "tai_nguyen_moi_truong",
+    "van_hoa_the_thao_du_lich",
+    "khoa_hoc_cong_nghe",
+    "thong_tin_truyen_thong",
+    "nong_nghiep",
+    "cong_thuong",
+    "tai_chinh_thue_phi",
 ]
 
 def classify_llm(query: str):
     prompt = f"""
 Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường.
 
-BƯỚC 1: Chọn category (chỉ 1 trong 2):
-- thong_tin_phuong
+BƯỚC 1: Chọn category (chỉ 1 trong 3):
+- thong_tin_tong_quan
+- to_chuc_bo_may
 - thu_tuc_hanh_chinh
 
 BƯỚC 2: Chọn subject PHÙ HỢP VỚI category:
@@ -144,17 +146,21 @@ Chỉ được chọn 1 subject trong danh sách:
 - cong_thuong
 - tai_chinh_thue_phi
 
-Nếu category = thong_tin_phuong
+Nếu category = thong_tin_tong_quan
 Chỉ được chọn 1 subject trong danh sách:
 - thong_tin_khu_pho
 - lich_lam_viec
 - thong_tin_lien_he
 - tong_quan
-- lanh_dao
+
+Nếu category = to_chuc_bo_may
+Chỉ được chọn 1 subject trong danh sách:
 - nhan_su
+- chuc_vu
 
 QUY TẮC:
 - Mỗi field chỉ là 1 chuỗi duy nhất.
+- Phải chọn đúng subject theo category
 - Không được trả về mảng.
 - Không giải thích.
 - Không được tạo giá trị ngoài danh sách.
@@ -192,41 +198,15 @@ Câu hỏi: "{query}"
         return None, None
 
 
-
-def classify_subject(query: str):
+def classify_subject_bo_may(query: str, category: str):
     prompt = f"""
 Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường.
 
-Chọn subject PHÙ HỢP VỚI category:
+Chọn subject PHÙ HỢP VỚI category là "{category}":
 
-Nếu category = thu_tuc_hanh_chinh
 Chỉ được chọn 1 subject trong danh sách:
-- tu_phap_ho_tich
-- doanh_nghiep
-- giao_thong_van_tai
-- dat_dai
-- xay_dung_nha_o
-- dau_tu
-- lao_dong_viec_lam
-- bao_hiem_an_sinh
-- giao_duc_dao_tao
-- y_te
-- tai_nguyen_moi_truong
-- van_hoa_the_thao_du_lich
-- khoa_hoc_cong_nghe
-- thong_tin_truyen_thong
-- nong_nghiep
-- cong_thuong
-- tai_chinh_thue_phi
-
-Nếu category = thong_tin_phuong
-Chỉ được chọn 1 subject trong danh sách:
-- thong_tin_khu_pho
-- lich_lam_viec
-- thong_tin_lien_he
-- tong_quan
-- lanh_dao
-- nhan_su
+- nhan_su (ví dụ: phụ trách, đảm nhiệm, vai trò)
+- chuc_vu (ví dụ: bí thư, chủ tịch, Phó chủ tịch, giám đốc, phó giám đốc, trưởng phòng, Phó trưởng phòng/công chức, viên chức, cán bộ, chuyên viên,...)
 
 QUY TẮC:
 - Mỗi field chỉ là 1 chuỗi duy nhất.
@@ -237,8 +217,7 @@ QUY TẮC:
 Chỉ trả về JSON đúng format:
 
 {{
-  "subject": "",
-  "category": "",
+  "subject": ""
 }}
 
 Câu hỏi: "{query}"
@@ -250,20 +229,18 @@ Câu hỏi: "{query}"
 
         data = json.loads(raw)
 
-        category = data.get("category")
         subject = data.get("subject")
 
         # Validate output
-        if category in CATEGORIES and subject in SUBJECTS:
-            return category, subject
+        if subject in SUBJECTS:
+            return subject
         
         # Nếu LLM trả sai → fallback None
-        return None, None
+        return None
 
     except Exception as e:
         print("LLM classify error:", e)
-        return None, None
-
+        return None
 
 def classify_subject_QA(query: str, category: str):
     prompt = f"""
@@ -276,8 +253,6 @@ Chỉ được chọn 1 subject trong danh sách:
 - lich_lam_viec
 - thong_tin_lien_he
 - tong_quan
-- lanh_dao
-- nhan_su
 
 QUY TẮC:
 - Mỗi field chỉ là 1 chuỗi duy nhất.

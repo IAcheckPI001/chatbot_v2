@@ -12,12 +12,12 @@ from corn import supabase
 from flask import Response, stream_with_context
 import json
 from normalize import SINGLE_TOKEN_MAP, CONTEXT_RULES, BANNED_KEYWORDS, normalize_text, check_rewrite, AbbreviationResolver
-from model import rewrite_query, detect_query, llm_answer, classify_llm, classify_subject, classify_subject_QA, classify_subject_procedure
+from model import rewrite_query, detect_query, llm_answer, classify_llm, classify_subject_bo_may, classify_subject_QA, classify_subject_procedure
 from system import apply_semantic_guard
 from embedding import get_embedding
 from utils import SUBJECT_KEYWORDS, classify, prepare_subject_keywords
 
-session_history = []
+
 PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
 
 load_dotenv()
@@ -80,7 +80,7 @@ def get_alias():
 def get_logs():
     try:
         response = supabase.table("log_query") \
-            .select("id, raw_query, expanded_query, event_type, reason, alias_score, document_score, confidence_score, response_time_ms") \
+            .select("id, raw_query, expanded_query, answer, event_type, reason, alias_score, document_score, confidence_score, response_time_ms") \
             .execute()
 
         if not response.data:
@@ -119,6 +119,38 @@ def delete_logs():
         return jsonify({
             "error": str(e)
         }), 500
+
+@app.route('/api/create-chunk', methods=['POST'])
+def create_chunk():
+    try:
+        data = request.json
+
+        # Validate cơ bản
+        if not data.get("text_content"):
+            return jsonify({"error": "text_content is required"}), 400
+
+        new_chunk = {
+            "tenant_name": data.get("tenant_name") or 'xa_ba_diem',
+            "scope": data.get("scope") or 'xa',
+            "procedure_name": data.get("procedure_name") or None,
+            "text_content": data.get("text_content") or '',
+            "normalized_text": normalize_text(data.get("procedure_name")) if data.get("procedure_name") else normalize_text(data.get("text_content")),
+            "category": data.get("category") or None,
+            "subject": data.get("subject") or None,
+            "embedding": get_embedding(data.get("text_content")) if data.get("text_content") else None
+        }
+
+        response = supabase.table("documents") \
+            .insert(new_chunk) \
+            .execute()
+
+        return jsonify({
+            "message": "Chunk created successfully",
+            "data": response.data
+        }), 201
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/create-alias', methods=['POST'])
 def create_alias():
@@ -195,18 +227,15 @@ def update_chunk(chunk_id):
     try:
         data = request.json
 
-        category = data.get("category")
         text_content = data.get("text_content")
-
-        if category == "thong_tin_phuong":
-            normalized_text = normalize_text(text_content)
 
         response = supabase.table("documents") \
             .update({
                 "text_content": data.get("text_content"),
-                "normalized_text": normalized_text,
+                "normalized_text": normalize_text(text_content),
                 "category": data.get("category") or None,
-                "subject": data.get("subject") or None
+                "subject": data.get("subject") or None,
+                "embedding": get_embedding(text_content)
             }) \
             .eq("id", chunk_id) \
             .execute()
@@ -258,9 +287,29 @@ def update_alias(alias_id):
             "error": str(e)
         }), 500
 
+@app.route("/api/load-history", methods=["POST"])
+def load_history():
+
+    data = request.json
+    session_id = data.get("session_id")
+
+    logs = (
+        supabase
+        .table("log_query")
+        .select("raw_query, answer")
+        .eq("session_chat", session_id)
+        .eq("event_type", "normal")
+        .order("created_at")
+        .execute()
+    )
+
+    return jsonify({
+        "logs": logs.data
+    })
+
 @app.route('/api/clear-session', methods=['POST'])
 def clear_session():
-    session_history.clear()
+
     return jsonify({"message": "Session cleared"})
 
 @app.route('/api/chat-stream', methods=['POST'])
@@ -270,10 +319,25 @@ def chat_stream():
 
         # ✅ LẤY DATA TRƯỚC
         data = request.json
+        session_id = data.get("session_id")
+        print("Session:", session_id)
         user_message = data.get('message', '').strip()
         use_llm = data.get('use_llm', False)
         chunk_generate = data.get("chunk_limit", 1)
         log_data = {}
+
+        session_history = (
+            supabase
+            .table("log_query")
+            .select("raw_query, answer")
+            .eq("session_chat", session_id)
+            .eq("event_type", "normal")
+            .order("created_at", desc=True)
+            .limit(2)
+            .execute()
+        )
+
+        history_data = session_history.data
 
         re_check = False
 
@@ -306,6 +370,7 @@ def chat_stream():
             log_data["expanded_query"] = normalized_query
             log_data["event_type"] = "banned_topic"
             log_data["reason"]= f"Nội dung có chứa từ khóa cấm => {matched_keyword}"
+            log_data["session_chat"]= session_id
             log_data["response_time_ms"]= round(duration / 1000,2)
             create_log(log_data)
             yield f"data: {json.dumps({'log': f'[Blocked] Query: {user_message} => keyword: {matched_keyword}'})}\n\n"
@@ -314,15 +379,15 @@ def chat_stream():
 
         query_embedding = get_embedding(user_message)
 
-        print(session_history)
+        print(history_data)
 
-        if len(session_history) >= 2:
+        if len(history_data) >= 1:
             yield f"data: {json.dumps({'log': f'Kiểm tra lịch sử hội thoại'})}\n\n"
 
-            last_question = session_history[-2]["text"]
-
-            print(last_question)
-            last_answer = session_history[-1]["text"]
+            last_answer = history_data[0]["answer"]
+            print(f"Câu trả lời trước: {last_answer}")
+            last_question = history_data[0]["raw_query"]
+            print(f"Câu hỏi trước: {last_question}")
             # last_a_emb = session_history[-1]["embedding"]
 
             # check_question = check_rewrite(
@@ -338,10 +403,7 @@ def chat_stream():
 
             yield f"data: {json.dumps({'log': f'Câu hỏi hoàn chỉnh: {user_message}'})}\n\n"
 
-        session_history.append({
-            "text": user_message,
-            "embedding": None
-        })
+
         yield f"data: {json.dumps({'log': f'Normalized: {normalized_query}'})}\n\n"
 
         category, subject = classify(normalized_query, PREPARED)
@@ -354,8 +416,11 @@ def chat_stream():
         if subject is None and category == "thu_tuc_hanh_chinh":
             subject = classify_subject_procedure(user_message, category)
         
-        if subject is None and category == "thong_tin_phuong":
+        if subject is None and category == "thong_tin_tong_quan":
             subject = classify_subject_QA(user_message, category)
+        
+        if subject is None and category == "to_chuc_bo_may":
+            subject = classify_subject_bo_may(user_message, category)
 
         yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
         response = supabase.rpc(
@@ -466,10 +531,22 @@ def chat_stream():
     
             if use_llm:
                 answer = llm_answer(user_message, context)
-            session_history.append({
-                "text": answer,
-                "embedding": None
-            })
+
+            end = time.perf_counter()
+            duration = (end - start) * 1000 
+            log_data["tenant_name"]= 'xa_ba_diem'
+            log_data["raw_query"] = user_message
+            log_data["expanded_query"] = normalized_query
+            log_data["answer"]= answer
+            log_data["detected_category"]= category
+            log_data["detected_subject"]= subject
+            log_data["event_type"] = "normal"
+            log_data["alias_score"]= chunks[0]["alias_score"]
+            log_data["document_score"]= chunks[0]["document_score"]
+            log_data["confidence_score"]= chunks[0]["alias_score"]
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            create_log(log_data)
             yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
 
             return
@@ -502,35 +579,48 @@ def chat_stream():
                     )
                     if use_llm:
                         answer = llm_answer(user_message, context)
-                    session_history.append({
-                        "text": answer,
-                        "embedding": None
-                    })
+
+                    end = time.perf_counter()
+                    duration = (end - start) * 1000 
+                    log_data["tenant_name"]= 'xa_ba_diem'
+                    log_data["raw_query"] = user_message
+                    log_data["expanded_query"] = normalized_query
+                    log_data["answer"]= answer
+                    log_data["detected_category"]= category
+                    log_data["detected_subject"]= subject
+                    log_data["event_type"] = "normal"
+                    log_data["alias_score"]= chunks[0]["alias_score"]
+                    log_data["document_score"]= chunks[0]["document_score"]
+                    log_data["confidence_score"]= chunks[0]["alias_score"]
+                    log_data["session_chat"]= session_id
+                    log_data["response_time_ms"]= round(duration / 1000,2)
+                    create_log(log_data)
                     yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
                 if flow_query == "complaint":
                     end = time.perf_counter()
                     duration = (end - start) * 1000 
+                    log_data["tenant_name"]= 'xa_ba_diem'
                     log_data["raw_query"] = user_message
                     log_data["expanded_query"] = normalized_query
                     log_data["event_type"] = "complaint"
                     log_data["reason"]= f"Nội dung thuộc chủ đề góp ý, phàn nàn"
+                    log_data["session_chat"]= session_id
                     log_data["response_time_ms"]= round(duration / 1000,2)
                     create_log(log_data)
                     yield f"data: {json.dumps({'log': f'=> Phản hồi góp ý'})}\n\n"
-                    session_history.clear()
+
                     yield f"data: {json.dumps({'replies': complaint_content, 'chunks': []})}\n\n"
                 if flow_query == "banned":
                     yield f"data: {json.dumps({'log': f'=> Ngoài phạm vi'})}\n\n"
-                    session_history.clear()
+
                     end = time.perf_counter()
                     duration = (end - start) * 1000 
+                    log_data["tenant_name"]= 'xa_ba_diem'
                     log_data["raw_query"] = user_message
                     log_data["expanded_query"] = normalized_query
                     log_data["event_type"] = "out_of_scope"
-                    log_data["reason"]= f"LLM xác định => Nằm ngoài phạm vi"
-                    log_data["alias_score"]= chunks[0]["alias_score"]
-                    log_data["document_score"]= chunks[0]["document_score"]
-                    log_data["confidence_score"]= chunks[0]["confidence_score"]
+                    log_data["reason"]= f"LLM xác định => Chủ đề cấm không được trả lời"
+                    log_data["session_chat"]= session_id
                     log_data["response_time_ms"]= round(duration / 1000,2)
                     create_log(log_data)
                     yield f"data: {json.dumps({'replies': out_of_score_content, 'chunks': []})}\n\n"

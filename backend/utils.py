@@ -26,7 +26,7 @@ THU_TUC_KEYWORDS = [
     "quy hoach dat"
 ]
 
-PHUONG_INFO_KEYWORDS = [
+TONG_QUAN_INFO_KEYWORDS = [
     "vi tri",
     "dia ly",
     "dia chi",
@@ -52,14 +52,14 @@ PHUONG_INFO_KEYWORDS = [
 ]
 
 NHAN_SU_INFO_KEYWORDS = [
-    "giam doc",
     "phu trach",
-    "cong chuc",
     "nhan vien",
-    "lanh dao"
+    "lanh dao",
+    "dam nhiem",
+    "vai tro"
 ]
 
-LANH_DAO_INFO_KEYWORDS = [
+CHUC_VU_INFO_KEYWORDS = [
     "bi thu phuong",
     "bi thu",
     "pho bi thu",
@@ -79,6 +79,14 @@ LANH_DAO_INFO_KEYWORDS = [
     "chu tich hdnd",
     "pho chu tich hdnd phuong",
     "pho chu tich hdnd",
+    "giam doc",
+    "cong chuc",
+    "vien chuc",
+    "pho truong phong",
+    "pho giam doc",
+    "can bo",
+    "chuyen vien",
+    "truong phong"
 ]
 
 KHU_PHO_KEYWORDS = [
@@ -363,6 +371,7 @@ SUBJECT_KEYWORDS = {
         "ban le ruou",
         "ban ruou",
         "san xuat ruou",
+        "quan ruou",
     ],
 
     "tai_chinh_thue_phi": [
@@ -432,12 +441,12 @@ def classify(q: str, PREPARED):
 
     # --- Scores ---
     thu_tuc_score = sum(1 for kw in THU_TUC_KEYWORDS if kw in q)
-    lanh_dao_score = sum(1 for kw in LANH_DAO_INFO_KEYWORDS if kw in q)
+    chuc_vu_score = sum(1 for kw in CHUC_VU_INFO_KEYWORDS if kw in q)
     nhan_su_score = sum(1 for kw in NHAN_SU_INFO_KEYWORDS if kw in q)
     khu_pho_score = sum(1 for kw in KHU_PHO_KEYWORDS if kw in q)
     contact_score = sum(1 for kw in CONTACT_INFO_KEYWORDS if kw in q)
     lich_score = sum(1 for kw in LICH_LAM_VIEC_KEYWORDS if kw in q)
-    phuong_info_score = sum(1 for kw in PHUONG_INFO_KEYWORDS if kw in q)
+    tong_quan_info_score = sum(1 for kw in TONG_QUAN_INFO_KEYWORDS if kw in q)
 
     # --- 1️⃣ Ưu tiên thủ tục ---
     if thu_tuc_score >= 1:
@@ -445,26 +454,26 @@ def classify(q: str, PREPARED):
         return "thu_tuc_hanh_chinh", subject
 
     if lich_score >= 1:
-        return "thong_tin_phuong", "lich_lam_viec"
+        return "thong_tin_tong_quan", "lich_lam_viec"
     
     if contact_score >= 1:
-        return "thong_tin_phuong", "thong_tin_lien_he"
+        return "thong_tin_tong_quan", "thong_tin_lien_he"
 
     # --- 2️⃣ Subject level ---
-    if lanh_dao_score >= 1:
-        return "thong_tin_phuong", "lanh_dao"
+    if chuc_vu_score >= 1:
+        return "to_chuc_bo_may", "chuc_vu"
 
     if khu_pho_score >= 1:
         item = "thong_tin_khu_pho"
         if "bao nhieu" in q:
             item = "tong_quan" if any(kw in q for kw in DS_KHU_PHO_KEYWORDS) else item
-        return "thong_tin_phuong", item
+        return "thong_tin_tong_quan", item
     
     if nhan_su_score >= 1:
-        return "thong_tin_phuong", "nhan_su"
+        return "to_chuc_bo_may", "nhan_su"
 
     # --- 3️⃣ Fallback ---
-    if phuong_info_score >= 1:
-        return "thong_tin_phuong", "tong_quan"
+    if tong_quan_info_score >= 1:
+        return "thong_tin_tong_quan", "tong_quan"
 
     return None, None
