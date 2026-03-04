@@ -22,7 +22,7 @@ const chatBody = ref<HTMLElement | null>(null)
 const isLLMEnabled = ref(false) // mặc định bật
 const showSettings = ref(false)
 const settingsRef = ref<HTMLElement | null>(null)
-const sessionId = crypto.randomUUID()
+// const sessionId = crypto.randomUUID()
 const originalData = ref<any>(null)
 
 
