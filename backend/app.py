@@ -322,6 +322,7 @@ def chat_stream():
         session_id = data.get("session_id")
         print("Session:", session_id)
         user_message = data.get('message', '').strip()
+        origin_mess = user_message
         use_llm = data.get('use_llm', False)
         chunk_generate = data.get("chunk_limit", 1)
         log_data = {}
@@ -329,7 +330,7 @@ def chat_stream():
         session_history = (
             supabase
             .table("log_query")
-            .select("raw_query, answer")
+            .select("expanded_query, answer")
             .eq("session_chat", session_id)
             .eq("event_type", "normal")
             .order("created_at", desc=True)
@@ -349,7 +350,8 @@ def chat_stream():
         yield f"data: {json.dumps({'log': f'Nhận message...'})}\n\n"
         yield f"data: {json.dumps({'log': f'Kiểm tra viết tắt'})}\n\n"
         result = resolver.process(user_message)
-        normalized_query = result["expanded"]
+        user_message = result["expanded"]
+        normalized_query = result["normalized"]
         yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
         # normalized_query = normalize_text(q)
         yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
@@ -384,9 +386,9 @@ def chat_stream():
         if len(history_data) >= 1:
             yield f"data: {json.dumps({'log': f'Kiểm tra lịch sử hội thoại'})}\n\n"
 
-            last_answer = history_data[0]["answer"]
-            print(f"Câu trả lời trước: {last_answer}")
-            last_question = history_data[0]["raw_query"]
+            # last_answer = history_data[0]["answer"]
+            # print(f"Câu trả lời trước: {last_answer}")
+            last_question = history_data[0]["expanded_query"]
             print(f"Câu hỏi trước: {last_question}")
             # last_a_emb = session_history[-1]["embedding"]
 
@@ -397,7 +399,7 @@ def chat_stream():
             # )
 
             # if check_question:
-            user_message = rewrite_query(user_message, last_question, last_answer)
+            user_message = rewrite_query(user_message, last_question)
             query_embedding = get_embedding(user_message)
             normalized_query = normalize_text(user_message)
 
@@ -412,17 +414,21 @@ def chat_stream():
         if category is None:
             re_check = True 
             category, subject = classify_llm(user_message)
+            yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
 
         if subject is None and category == "thu_tuc_hanh_chinh":
             subject = classify_subject_procedure(user_message, category)
+            yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
         
         if subject is None and category == "thong_tin_tong_quan":
             subject = classify_subject_QA(user_message, category)
+            yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
         
         if subject is None and category == "to_chuc_bo_may":
+            re_check = True 
             subject = classify_subject_bo_may(user_message, category)
 
-        yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
         response = supabase.rpc(
             "search_documents_full_hybrid_v5",
             {
@@ -437,28 +443,29 @@ def chat_stream():
 
 
         chunks = response.data or []
+        
 
-        # if re_check:
-        #     best_score = chunks[0]["confidence_score"] if chunks else 0
-        #     if best_score < 0.3:
-        #         response_all = supabase.rpc(
-        #             "search_documents_full_hybrid_v5",
-        #             {
-        #                 "p_query_format": normalized_query,
-        #                 "p_query_embedding": query_embedding,
-        #                 "p_tenant": "xa_ba_diem",
-        #                 "p_category": None,
-        #                 "p_subject": None,
-        #                 "p_limit": 12
-        #             }
-        #         ).execute()
+        if re_check:
+            best_score = chunks[0]["confidence_score"] if chunks else 0
+            if best_score < 0.3:
+                response_all = supabase.rpc(
+                    "search_documents_full_hybrid_v5",
+                    {
+                        "p_query_format": normalized_query,
+                        "p_query_embedding": query_embedding,
+                        "p_tenant": "xa_ba_diem",
+                        "p_category": category,
+                        "p_subject": None,
+                        "p_limit": 5
+                    }
+                ).execute()
 
-        #         chunks_all = response_all.data or []
-        #         best_score_all = chunks_all[0]["confidence_score"] if chunks_all else 0
+                chunks_all = response_all.data or []
+                best_score_all = chunks_all[0]["confidence_score"] if chunks_all else 0
 
-        #         # Nếu không subject tốt hơn → dùng nó
-        #         if best_score_all > best_score:
-        #             chunks = chunks_all
+                # Nếu không subject tốt hơn → dùng nó
+                if best_score_all > best_score:
+                    chunks = chunks_all
 
         # if category == "thu_tuc_hanh_chinh" and subject:
         #     best_score = chunks[0]["confidence_score"] if chunks else 0
@@ -486,7 +493,7 @@ def chat_stream():
         chunks = chunks[:5]
         if subject == "thong_tin_lien_he":
             score = chunks[0]["confidence_score"]
-            if score < 0.3:
+            if score < 0.5:
                 # subject = "lanh_dao"
                 response = supabase.rpc(
                     "search_documents_full_hybrid_v5",
@@ -506,6 +513,7 @@ def chat_stream():
                 score_temp = chunks_temp[0]["confidence_score"]
                 if score_temp > score:
                     chunks = chunks_temp
+        
 
 
         if category == "thu_tuc_hanh_chinh":
@@ -535,8 +543,8 @@ def chat_stream():
             end = time.perf_counter()
             duration = (end - start) * 1000 
             log_data["tenant_name"]= 'xa_ba_diem'
-            log_data["raw_query"] = user_message
-            log_data["expanded_query"] = normalized_query
+            log_data["raw_query"] = origin_mess
+            log_data["expanded_query"] = user_message
             log_data["answer"]= answer
             log_data["detected_category"]= category
             log_data["detected_subject"]= subject
@@ -568,7 +576,7 @@ def chat_stream():
         #     return
         
         elif score <= HIGH_THRESHOLD:
-            yield f"data: {json.dumps({'log': f'Sử dụng LLM kiểm tra phạm vi'})}\n\n"
+            yield f"data: {json.dumps({'log': f'Sử dụng LLM kiểm tra phạm vi câu hỏi: {user_message}'})}\n\n"
             flow_query = detect_query(user_message)
             if flow_query in ["qa", "complaint", "out_of_scope"]:
                 if flow_query == "qa":
@@ -583,8 +591,8 @@ def chat_stream():
                     end = time.perf_counter()
                     duration = (end - start) * 1000 
                     log_data["tenant_name"]= 'xa_ba_diem'
-                    log_data["raw_query"] = user_message
-                    log_data["expanded_query"] = normalized_query
+                    log_data["raw_query"] = origin_mess
+                    log_data["expanded_query"] = user_message
                     log_data["answer"]= answer
                     log_data["detected_category"]= category
                     log_data["detected_subject"]= subject
@@ -600,8 +608,8 @@ def chat_stream():
                     end = time.perf_counter()
                     duration = (end - start) * 1000 
                     log_data["tenant_name"]= 'xa_ba_diem'
-                    log_data["raw_query"] = user_message
-                    log_data["expanded_query"] = normalized_query
+                    log_data["raw_query"] = origin_mess
+                    log_data["expanded_query"] = user_message
                     log_data["event_type"] = "complaint"
                     log_data["reason"]= f"Nội dung thuộc chủ đề góp ý, phàn nàn"
                     log_data["session_chat"]= session_id
@@ -616,8 +624,8 @@ def chat_stream():
                     end = time.perf_counter()
                     duration = (end - start) * 1000 
                     log_data["tenant_name"]= 'xa_ba_diem'
-                    log_data["raw_query"] = user_message
-                    log_data["expanded_query"] = normalized_query
+                    log_data["raw_query"] = origin_mess
+                    log_data["expanded_query"] = user_message
                     log_data["event_type"] = "out_of_scope"
                     log_data["reason"]= f"LLM xác định => Chủ đề cấm không được trả lời"
                     log_data["session_chat"]= session_id

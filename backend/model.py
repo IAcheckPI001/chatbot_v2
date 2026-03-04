@@ -121,7 +121,7 @@ Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường.
 
 BƯỚC 1: Chọn category (chỉ 1 trong 3):
 - thong_tin_tong_quan
-- to_chuc_bo_may
+- to_chuc_bo_may (bao gồm ai phụ trách, đảm nhiệm, vai trò, chức danh/bí thư, chủ tịch, Phó chủ tịch, giám đốc, phó giám đốc, trưởng phòng, Phó trưởng phòng/công chức, viên chức, cán bộ, chuyên viên)
 - thu_tuc_hanh_chinh
 
 BƯỚC 2: Chọn subject PHÙ HỢP VỚI category:
@@ -388,27 +388,67 @@ Câu hỏi: "{query}"
 #     except:
 #         return query
 
-def rewrite_query(query: str, last_question: str, last_answer: str) -> str:
-    prompt = f"""Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã.
+# def rewrite_query(query: str, last_question: str) -> str:
+#     prompt = f"""Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã.
+
+# Mục tiêu:
+# - Biến câu hỏi hiện tại thành câu hỏi ĐỘC LẬP, đủ chủ thể/đối tượng.
+# - Nếu câu hiện tại thiếu đối tượng (ví dụ: "vậy nộp online được không"), bạn PHẢI thêm đối tượng từ lịch sử (ví dụ: "thủ tục làm giấy khai sinh").
+# - Không bịa thêm thông tin.
+
+# Lịch sử gần nhất:
+# Người dùng hỏi là: {last_question}
+
+# Câu hỏi hiện tại:
+# {query}
+
+# Chỉ trả về 1 câu hỏi đã viết lại, không giải thích."""
+#     try:
+#         response = llm_rewrite.invoke(prompt)
+#         return response.content.strip()
+#     except:
+#         return query
+
+
+def rewrite_query(query: str, last_question: str) -> str:
+    prompt = f"""
+Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã.
 
 Mục tiêu:
-- Biến câu hỏi hiện tại thành câu hỏi ĐỘC LẬP, đủ chủ thể/đối tượng.
-- Nếu câu hiện tại thiếu đối tượng (ví dụ: "vậy nộp online được không"), bạn PHẢI thêm đối tượng từ lịch sử (ví dụ: "thủ tục làm giấy khai sinh").
-- Không bịa thêm thông tin.
+- Biến câu hỏi hiện tại thành câu hỏi ĐỘC LẬP nếu câu hỏi hiện tại thiếu đối tượng.
+- Nếu câu hỏi hiện tại đã đầy đủ chủ thể hoặc có đối tượng mới → GIỮ NGUYÊN câu hỏi.
+- KHÔNG được suy diễn thêm thông tin.
+- KHÔNG được thay đổi ý nghĩa câu hỏi.
+- KHÔNG được thay đổi tên người, địa điểm hoặc đối tượng mới trong câu hỏi.
+
+Quy tắc:
+1. Nếu câu hỏi hiện tại là câu hỏi tiếp nối (ví dụ: "làm ở đâu", "bao lâu", "cần giấy tờ gì") → thêm đối tượng từ lịch sử.
+2. Nếu câu hỏi hiện tại đã có đối tượng rõ ràng → giữ nguyên.
+3. Nếu câu hỏi hiện tại nhắc đến đối tượng mới → bỏ qua lịch sử và giữ nguyên.
+
+Ví dụ:
+Lịch sử: "đăng ký khai sinh"
+Câu hỏi: "làm ở đâu"
+→ "đăng ký khai sinh làm ở đâu"
+
+Lịch sử: "chị Thu là ai"
+Câu hỏi: "anh Hiệp là ai"
+→ "anh Hiệp là ai"
 
 Lịch sử gần nhất:
-Người dùng hỏi là: {last_question}
+{last_question}
 
 Câu hỏi hiện tại:
 {query}
 
-Chỉ trả về 1 câu hỏi đã viết lại, không giải thích."""
+Chỉ trả về câu hỏi cuối cùng. Không giải thích.
+"""
     try:
         response = llm_rewrite.invoke(prompt)
         return response.content.strip()
     except:
         return query
-
+    
 def llm_answer(question: str, context: str) -> str:
     prompt = f"""Bạn là chatbot hành chính cấp xã.
 

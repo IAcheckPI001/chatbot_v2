@@ -906,9 +906,10 @@ function stopDrag() {
           <label>Loại log:</label>
           <select v-model="typeLogFilter" class="filter-select">
             <option value="">Tất cả</option>
-            <option value="complaint">complaint</option>
-            <option value="out_of_scope">out_of_scope</option>
-            <option value="low_confidence">low_confidence</option>
+            <option value="complaint">Phàn nàn/ý kiến</option>
+            <option value="out_of_scope">Ngoài phạm vi</option>
+            <option value="normal">Lịch sử hội thoại</option>
+            <option value="low_confidence">Các câu hỏi điểm thấp</option>
             
           </select>
         <button class="btn-reset-filter" @click="typeLogFilter = '';">Xóa bộ lọc</button>

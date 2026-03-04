@@ -98,50 +98,101 @@ NORMALIZED_BANNED = [
 ]
 
 
-## sym block
+# ## sym block
+# SINGLE_TOKEN_MAP = {
+#     # "ubnd": "uy ban nhan dan",
+#     # "hdnd": "hoi dong nhan dan",
+#     "pct": "phó chủ tịch",
+#     "pbt": "pho bi thu",
+#     "cccd": "can cuoc cong dan",
+#     "cmnd": "chung minh nhan dan",
+#     "hk": "ho khau",
+#     "gks": "giay khai sinh",
+#     "gkt": "giay khai tu",
+#     "dkkh": "dang ky ket hon",
+#     "tthc": "thu tuc hanh chinh",
+#     "gcn": "giay chung nhan",
+#     "gpkd": "giay phep kinh doanh",
+#     "hkd": "ho kinh doanh",
+#     "htx": "hop tac xa",
+#     "bhxh": "bao hiem xa hoi",
+#     "bhyt": "bao hiem y te",
+#     "pccc": "phong chay chua chay",
+#     "dktt": "dang ky tam tru",
+#     "dktv": "dang ky tam vang",
+#     "dkks": "dang ky khai sinh",
+#     "dkkt": "dang ky khai tu",
+#     "sdt": "so dien thoai",
+#     "kp": "khu pho"
+# }
+
 SINGLE_TOKEN_MAP = {
-    # "ubnd": "uy ban nhan dan",
-    # "hdnd": "hoi dong nhan dan",
-    "pct": "pho chu tich",
-    "pbt": "pho bi thu",
-    "cccd": "can cuoc cong dan",
-    "cmnd": "chung minh nhan dan",
-    "hk": "ho khau",
-    "gks": "giay khai sinh",
-    "gkt": "giay khai tu",
-    "dkkh": "dang ky ket hon",
-    "tthc": "thu tuc hanh chinh",
-    "gcn": "giay chung nhan",
-    "gpkd": "giay phep kinh doanh",
-    "hkd": "ho kinh doanh",
-    "htx": "hop tac xa",
-    "bhxh": "bao hiem xa hoi",
-    "bhyt": "bao hiem y te",
-    "pccc": "phong chay chua chay",
-    "dktt": "dang ky tam tru",
-    "dktv": "dang ky tam vang",
-    "dkks": "dang ky khai sinh",
-    "dkkt": "dang ky khai tu",
-    "sdt": "so dien thoai",
-    "kp": "khu pho"
+    # "ubnd": "ủy ban nhân dân",
+    # "hdnd": "hội đồng nhân dân",
+    "ct": "chủ tịch",
+    "pct": "phó chủ tịch",
+    "pbt": "phó bí thư",
+    "cccd": "căn cước công dân",
+    "cmnd": "chứng minh nhân dân",
+    "hk": "hộ khẩu",
+    "gks": "giấy khai sinh",
+    "gkt": "giấy khai tử",
+    "dkkh": "đăng ký kết hôn",
+    "tthc": "thủ tục hành chính",
+    "gcn": "giấy chứng nhận",
+    "gpkd": "giấy phép kinh doanh",
+    "hkd": "hộ kinh doanh",
+    "htx": "hợp tác xã",
+    "bhxh": "bảo hiểm xã hội",
+    "bhyt": "bảo hiểm y tế",
+    "pccc": "phòng cháy chữa cháy",
+    "dktt": "đăng ký tạm trú",
+    "dktv": "đăng ký tạm vắng",
+    "dkks": "đăng ký khai sinh",
+    "dkkt": "đăng ký khai tử",
+    "sdt": "số điện thoại",
+    "kp": "khu phố"
 }
 
+# CONTEXT_RULES = [
+#     (r"\b(dk|dang ky)\s+ho\s+kd\b", r"dang ky ho kinh doanh"),
+#     (r"\bho\s+kd\b", r"ho kinh doanh"),
+#     (r"\b(dk|dang ky)\s+kd\b", r"\1 kinh doanh"),
+#     (r"\b(dk|dang ky|giay|lam)\s+ks\b", r"\1 khai sinh"),
+#     (r"\b(dk|dang ky|giay|lam)\s+kt\b", r"\1 khai tu"),
+#     (r"\b(dk|dang ky)\s+kh\b", r"\1 ket hon"),
+#     (r"\b(dk|dang ky)\s+tt\b", r"\1 tam tru"),
+#     (r"\b(dk|dang ky)\s+tv\b", r"\1 tam vang"),
+#     (r"\b(dk|dang ky)\s+bh\b", r"\1 bao hiem")
+# ]
+
 CONTEXT_RULES = [
-    (r"\b(dk|dang ky)\s+ho\s+kd\b", r"dang ky ho kinh doanh"),
-    (r"\bho\s+kd\b", r"ho kinh doanh"),
-    (r"\b(dk|dang ky)\s+kd\b", r"\1 kinh doanh"),
-    (r"\b(dk|dang ky|giay|lam)\s+ks\b", r"\1 khai sinh"),
-    (r"\b(dk|dang ky|giay|lam)\s+kt\b", r"\1 khai tu"),
-    (r"\b(dk|dang ky)\s+kh\b", r"\1 ket hon"),
-    (r"\b(dk|dang ky)\s+tt\b", r"\1 tam tru"),
-    (r"\b(dk|dang ky)\s+tv\b", r"\1 tam vang"),
-    (r"\b(dk|dang ky)\s+bh\b", r"\1 bao hiem")
+
+    (r"\b(dk|đk|đăng ký)\s+hộ\s+kd\b", r"đăng ký hộ kinh doanh"),
+    (r"\bhộ\s+kd\b", r"hộ kinh doanh"),
+
+    (r"\b(dk|đk|đăng ký)\s+kd\b", r"\1 kinh doanh"),
+
+    (r"\b(dk|đk|đăng ký|giấy|làm)\s+(lại\s+)?ks\b", r"đăng ký \2khai sinh"),
+    (r"\b(dk|đk|đăng ký|giấy|làm)\s+(lại\s+)?kt\b", r"đăng ký \2khai tử"),
+
+    (r"\b(dk|đk|đăng ký)\s+kh\b", r"\1 kết hôn"),
+    (r"\b(dk|đk|đăng ký)\s+tt\b", r"\1 tạm trú"),
+    (r"\b(dk|đk|đăng ký)\s+tv\b", r"\1 tạm vắng"),
+    (r"\b(dk|đk|đăng ký)\s+bh\b", r"\1 bảo hiểm")
+
 ]
+# NEGATIVE_CONTEXT = {
+#     "hk": ["hoc sinh", "mon toan", "hoc ky"],
+#     "ks": ["ky su", "khach san"],
+#     "kt": ["ky thuat", "kiem tra", "ke toan", "kinh te"],
+# }
+
 
 NEGATIVE_CONTEXT = {
-    "hk": ["hoc sinh", "mon toan", "hoc ky"],
-    "ks": ["ky su", "khach san"],
-    "kt": ["ky thuat", "kiem tra", "ke toan", "kinh te"],
+    "hk": ["học sinh", "môn toán", "học kỳ"],
+    "ks": ["kỹ sư", "khách sạn"],
+    "kt": ["kỹ thuật", "kiểm tra", "kế toán", "kinh tế"],
 }
 
 def normalize_text(text: str) -> str:
@@ -191,38 +242,72 @@ class AbbreviationResolver:
     # ------------------------
     # SINGLE TOKEN EXPAND
     # ------------------------
+    # def expand_single(self, text: str) -> str:
+    #     tokens = text.split()
+
+    #     def replacer(match):
+    #         word = match.group(0).lower()
+
+    #         if word in NEGATIVE_CONTEXT:
+    #             idx = tokens.index(word)
+    #             window = " ".join(tokens[max(0, idx-2): idx+3])
+    #             for phrase in NEGATIVE_CONTEXT[word]:
+    #                 if phrase in window:
+    #                     return word
+
+    #         return self.mapping.get(word, word)
+
+    #     return self.abbr_pattern.sub(replacer, text)
+
     def expand_single(self, text: str) -> str:
-        tokens = text.split()
 
         def replacer(match):
-            word = match.group(0).lower()
 
-            if word in NEGATIVE_CONTEXT:
-                idx = tokens.index(word)
-                window = " ".join(tokens[max(0, idx-2): idx+3])
-                for phrase in NEGATIVE_CONTEXT[word]:
-                    if phrase in window:
-                        return word
+            word = match.group(0)
+            key = normalize_text(word)
 
-            return self.mapping.get(word, word)
+            return self.mapping.get(key, word)
 
         return self.abbr_pattern.sub(replacer, text)
 
     # ------------------------
     # MAIN PROCESS
     # ------------------------
+
+    # @lru_cache(maxsize=5000)
+    # def process(self, user_message: str) -> dict:
+    #     raw = user_message
+
+    #     normalized = normalize_text(expanded)
+    
+    #     expanded = normalized
+
+    #     # LUÔN chạy context rule
+    #     expanded = self.expand_context(expanded)
+
+    #     # Sau đó mới expand single
+    #     expanded = self.expand_single(expanded)
+
+
+    #     return {
+    #         "raw": raw,
+    #         "normalized": normalized,
+    #         "expanded": expanded
+    #     }
+    
     @lru_cache(maxsize=5000)
     def process(self, user_message: str) -> dict:
         raw = user_message
-        normalized = normalize_text(raw)
-
-        expanded = normalized
+    
+        expanded = raw
 
         # LUÔN chạy context rule
         expanded = self.expand_context(expanded)
 
         # Sau đó mới expand single
         expanded = self.expand_single(expanded)
+
+        normalized = normalize_text(expanded)
 
         return {
             "raw": raw,
