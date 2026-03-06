@@ -12,7 +12,8 @@ from corn import supabase
 from flask import Response, stream_with_context
 import json
 from normalize import SINGLE_TOKEN_MAP, CONTEXT_RULES, BANNED_KEYWORDS, normalize_text, check_rewrite, AbbreviationResolver
-from model import rewrite_query, detect_query, llm_answer, classify_llm, classify_subject_bo_may, classify_subject_QA, classify_subject_procedure
+from model import rewrite_query, detect_query, llm_answer, classify_llm
+from test_demo import classify_v2
 from system import apply_semantic_guard
 from embedding import get_embedding
 from utils import SUBJECT_KEYWORDS, classify, prepare_subject_keywords
@@ -80,7 +81,7 @@ def get_alias():
 def get_logs():
     try:
         response = supabase.table("log_query") \
-            .select("id, raw_query, expanded_query, answer, event_type, reason, alias_score, document_score, confidence_score, response_time_ms") \
+            .select("id, raw_query, expanded_query, detected_category, detected_subject, answer, event_type, reason, alias_score, document_score, confidence_score, response_time_ms", "is_noted") \
             .execute()
 
         if not response.data:
@@ -312,6 +313,35 @@ def clear_session():
 
     return jsonify({"message": "Session cleared"})
 
+@app.route('/api/toggle-note/<log_id>', methods=['POST'])
+def toggle_note(log_id):
+    try:
+        # lấy trạng thái hiện tại
+        res = supabase.table("log_query") \
+            .select("is_noted") \
+            .eq("id", log_id) \
+            .single() \
+            .execute()
+
+        current = res.data["is_noted"]
+
+        # đảo trạng thái
+        updated = supabase.table("log_query") \
+            .update({"is_noted": not current}) \
+            .eq("id", log_id) \
+            .execute()
+
+        return jsonify({
+            "success": True,
+            "is_noted": not current
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
 @app.route('/api/chat-stream', methods=['POST'])
 def chat_stream():
 
@@ -379,7 +409,7 @@ def chat_stream():
             yield f"data: {json.dumps({'replies': out_of_score_content, 'chunks': []})}\n\n"
             return 
 
-        query_embedding = get_embedding(user_message)
+        # query_embedding = get_embedding(user_message)
 
         print(history_data)
 
@@ -400,7 +430,7 @@ def chat_stream():
 
             # if check_question:
             user_message = rewrite_query(user_message, last_question)
-            query_embedding = get_embedding(user_message)
+            # query_embedding = get_embedding(user_message)
             normalized_query = normalize_text(user_message)
 
             yield f"data: {json.dumps({'log': f'Câu hỏi hoàn chỉnh: {user_message}'})}\n\n"
@@ -408,64 +438,92 @@ def chat_stream():
 
         yield f"data: {json.dumps({'log': f'Normalized: {normalized_query}'})}\n\n"
 
-        category, subject = classify(normalized_query, PREPARED)
+        # category, subject = classify(normalized_query, PREPARED)
+        res = classify_v2(normalized_query, PREPARED)
+        category, subject = res["category"], res["subject"]
         yield f"data: {json.dumps({'log': f'Category: {category}, Subject: {subject}'})}\n\n"
 
-        if category is None:
-            re_check = True 
-            category, subject = classify_llm(user_message)
-            yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
+        # if category is None:
+        #     re_check = True 
+        #     category, subject = classify_llm(user_message)
+        #     yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
 
-        if subject is None and category == "thu_tuc_hanh_chinh":
-            subject = classify_subject_procedure(user_message, category)
-            yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
+        # if subject is None and category == "thu_tuc_hanh_chinh":
+        #     subject = classify_subject_procedure(user_message, category)
+        #     yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
         
-        if subject is None and category == "thong_tin_tong_quan":
-            subject = classify_subject_QA(user_message, category)
-            yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
+        # if subject is None and category == "thong_tin_tong_quan":
+        #     subject = classify_subject_QA(user_message, category)
+        #     yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
         
-        if subject is None and category == "to_chuc_bo_may":
-            re_check = True 
-            subject = classify_subject_bo_may(user_message, category)
+        # if subject is None and category == "to_chuc_bo_may":
+        #     re_check = True 
+        #     subject = classify_subject_bo_may(user_message, category)
 
-            yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
-        response = supabase.rpc(
-            "search_documents_full_hybrid_v5",
-            {
-                "p_query_format": normalized_query,
-                "p_query_embedding": query_embedding,
-                "p_tenant": "xa_ba_diem",
-                "p_category": category,
-                "p_subject": subject,
-                "p_limit": 12
-            }
-        ).execute()
+        #     yield f"data: {json.dumps({'log': f'Sử dụng LLM để trích xuất => Category: {category}, Subject: {subject}'})}\n\n"
+
+        if res["need_llm"]:
+            re_check = True
+            category_llm, subject_llm = classify_llm(user_message)
+            yield f"data: {json.dumps({'log': f'LLM classify => Category: {category_llm}, Subject: {subject_llm}'})}\n\n"
+
+            # chỉ override khi LLM trả rõ ràng
+            category = category_llm or category
+            subject = subject_llm or subject
 
 
-        chunks = response.data or []
+        end = time.perf_counter()
+        duration = (end - start) * 1000 
+        log_data["tenant_name"]= 'xa_ba_diem'
+        log_data["raw_query"] = origin_mess
+        log_data["expanded_query"] = user_message
+        log_data["answer"]= ""
+        log_data["event_type"]= "normal"
+        log_data["detected_category"]= category
+        log_data["detected_subject"]= subject
+        log_data["session_chat"]= session_id
+        log_data["response_time_ms"]= round(duration / 1000,2)
+        create_log(log_data)
+
+        # response = supabase.rpc(
+        #     "search_documents_full_hybrid_v6",
+        #     {
+        #         "p_query_format": normalized_query,
+        #         "p_query_embedding": query_embedding,
+        #         "p_tenant": "xa_ba_diem",
+        #         "p_category": category,
+        #         "p_subject": subject,
+        #         "p_limit": 12
+        #     }
+        # ).execute()
+
+
+        # chunks = response.data or []
         
 
-        if re_check:
-            best_score = chunks[0]["confidence_score"] if chunks else 0
-            if best_score < 0.3:
-                response_all = supabase.rpc(
-                    "search_documents_full_hybrid_v5",
-                    {
-                        "p_query_format": normalized_query,
-                        "p_query_embedding": query_embedding,
-                        "p_tenant": "xa_ba_diem",
-                        "p_category": category,
-                        "p_subject": None,
-                        "p_limit": 5
-                    }
-                ).execute()
+        # if re_check and subject in ["chuc_vu", "nhan_su"]:
+        #     best_score = chunks[0]["confidence_score"] if chunks else 0
+        #     if best_score < 0.4:
+        #         response_all = supabase.rpc(
+        #             "search_documents_full_hybrid_v6",
+        #             {
+        #                 "p_query_format": normalized_query,
+        #                 "p_query_embedding": query_embedding,
+        #                 "p_tenant": "xa_ba_diem",
+        #                 "p_category": category,
+        #                 "p_subject": None,
+        #                 "p_limit": 5
+        #             }
+        #         ).execute()
 
-                chunks_all = response_all.data or []
-                best_score_all = chunks_all[0]["confidence_score"] if chunks_all else 0
+        #         chunks_all = response_all.data or []
 
-                # Nếu không subject tốt hơn → dùng nó
-                if best_score_all > best_score:
-                    chunks = chunks_all
+        #         print(chunks_all[0])
+        #         best_score_all = chunks_all[0]["confidence_score"] if chunks_all else 0
+
+        #         # Nếu không subject tốt hơn → dùng nó
+        #         if best_score_all > best_score:
+        #             chunks = chunks_all
 
         # if category == "thu_tuc_hanh_chinh" and subject:
         #     best_score = chunks[0]["confidence_score"] if chunks else 0
@@ -489,75 +547,75 @@ def chat_stream():
         #         if best_score_all > best_score:
         #             chunks = chunks_all
 
-        # Cắt top 5
-        chunks = chunks[:5]
-        if subject == "thong_tin_lien_he":
-            score = chunks[0]["confidence_score"]
-            if score < 0.5:
-                # subject = "lanh_dao"
-                response = supabase.rpc(
-                    "search_documents_full_hybrid_v5",
-                    {
-                        "p_query_format": normalized_query,
-                        "p_query_embedding": query_embedding,
-                        "p_tenant": "xa_ba_diem",
-                        "p_category": category,
-                        "p_subject": None,
-                        "p_limit": 5
-                    }
-                ).execute()
-                chunks_temp = response.data
+        # # Cắt top 5
+        # chunks = chunks[:5]
+        # if subject == "thong_tin_lien_he":
+        #     score = chunks[0]["confidence_score"]
+        #     if score < 0.45:
+        #         # subject = "lanh_dao"
+        #         response = supabase.rpc(
+        #             "search_documents_full_hybrid_v6",
+        #             {
+        #                 "p_query_format": normalized_query,
+        #                 "p_query_embedding": query_embedding,
+        #                 "p_tenant": "xa_ba_diem",
+        #                 "p_category": "to_chuc_bo_may",
+        #                 "p_subject": None,
+        #                 "p_limit": 5
+        #             }
+        #         ).execute()
+        #         chunks_temp = response.data
 
-                if not chunks_temp:
-                    return
-                score_temp = chunks_temp[0]["confidence_score"]
-                if score_temp > score:
-                    chunks = chunks_temp
+        #         if not chunks_temp:
+        #             return
+        #         score_temp = chunks_temp[0]["confidence_score"]
+        #         if score_temp > score:
+        #             chunks = chunks_temp
         
 
 
-        if category == "thu_tuc_hanh_chinh":
-            chunks = apply_semantic_guard(normalized_query ,chunks)[:5]
+        # if category == "thu_tuc_hanh_chinh":
+        #     chunks = apply_semantic_guard(normalized_query ,chunks)[:5]
         
-        # LOW_THRESHOLD = 0.25
-        HIGH_THRESHOLD = 0.4
-        score = chunks[0]["confidence_score"] if chunks else 0
-        context = f"### Tài liệu\n{chunks[0]['text_content']}"
-        if chunk_generate > 1:
-            context = "\n\n".join(
-                f"### Tài liệu {i+1}\n{chunk['text_content']}"
-                for i, chunk in enumerate(chunks[:chunk_generate])
-            )
-        print(context)
+        # # LOW_THRESHOLD = 0.25
+        # HIGH_THRESHOLD = 0.4
+        # score = chunks[0]["confidence_score"] if chunks else 0
+        # context = f"### Tài liệu\n{chunks[0]['text_content'] if chunks else ''}"
+        # if chunk_generate > 1:
+        #     context = "\n\n".join(
+        #         f"### Tài liệu {i+1}\n{chunk['text_content']}"
+        #         for i, chunk in enumerate(chunks[:chunk_generate])
+        #     )
+        # print(context)
 
-        if score > HIGH_THRESHOLD:
-            yield f"data: {json.dumps({'log': f'=> Được trả lời'})}\n\n"
-            answer = "\n\n".join(
-                f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
-                for i, chunk in enumerate(chunks[:chunk_generate])
-            )
+        # if score > HIGH_THRESHOLD:
+        #     yield f"data: {json.dumps({'log': f'=> Được trả lời'})}\n\n"
+        #     answer = "\n\n".join(
+        #         f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
+        #         for i, chunk in enumerate(chunks[:chunk_generate])
+        #     )
     
-            if use_llm:
-                answer = llm_answer(user_message, context)
+        #     if use_llm:
+        #         answer = llm_answer(user_message, context)
 
-            end = time.perf_counter()
-            duration = (end - start) * 1000 
-            log_data["tenant_name"]= 'xa_ba_diem'
-            log_data["raw_query"] = origin_mess
-            log_data["expanded_query"] = user_message
-            log_data["answer"]= answer
-            log_data["detected_category"]= category
-            log_data["detected_subject"]= subject
-            log_data["event_type"] = "normal"
-            log_data["alias_score"]= chunks[0]["alias_score"]
-            log_data["document_score"]= chunks[0]["document_score"]
-            log_data["confidence_score"]= chunks[0]["alias_score"]
-            log_data["session_chat"]= session_id
-            log_data["response_time_ms"]= round(duration / 1000,2)
-            create_log(log_data)
-            yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
+        #     end = time.perf_counter()
+        #     duration = (end - start) * 1000 
+        #     log_data["tenant_name"]= 'xa_ba_diem'
+        #     log_data["raw_query"] = origin_mess
+        #     log_data["expanded_query"] = user_message
+        #     log_data["answer"]= answer
+        #     log_data["detected_category"]= category
+        #     log_data["detected_subject"]= subject
+        #     log_data["event_type"] = "normal"
+        #     log_data["alias_score"]= chunks[0]["alias_score"]
+        #     log_data["document_score"]= chunks[0]["document_score"]
+        #     log_data["confidence_score"]= chunks[0]["alias_score"]
+        #     log_data["session_chat"]= session_id
+        #     log_data["response_time_ms"]= round(duration / 1000,2)
+        #     create_log(log_data)
+        #     yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
 
-            return
+        #     return
 
         # elif score < LOW_THRESHOLD:
         #     session_history.clear()
@@ -575,64 +633,64 @@ def chat_stream():
         #     yield f"data: {json.dumps({'replies': out_of_score_content, 'chunks': []})}\n\n"
         #     return
         
-        elif score <= HIGH_THRESHOLD:
-            yield f"data: {json.dumps({'log': f'Sử dụng LLM kiểm tra phạm vi câu hỏi: {user_message}'})}\n\n"
-            flow_query = detect_query(user_message)
-            if flow_query in ["qa", "complaint", "out_of_scope"]:
-                if flow_query == "qa":
-                    yield f"data: {json.dumps({'log': f'=> Được trả lời'})}\n\n"
-                    answer = "\n\n".join(
-                        f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
-                        for i, chunk in enumerate(chunks[:chunk_generate])
-                    )
-                    if use_llm:
-                        answer = llm_answer(user_message, context)
+        # elif score <= HIGH_THRESHOLD:
+        #     yield f"data: {json.dumps({'log': f'Sử dụng LLM kiểm tra phạm vi câu hỏi: {user_message}'})}\n\n"
+        #     flow_query = detect_query(user_message)
+        #     if flow_query in ["qa", "complaint", "out_of_scope"]:
+        #         if flow_query == "qa":
+        #             yield f"data: {json.dumps({'log': f'=> Được trả lời'})}\n\n"
+        #             answer = "\n\n".join(
+        #                 f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
+        #                 for i, chunk in enumerate(chunks[:chunk_generate])
+        #             )
+        #             if use_llm:
+        #                 answer = llm_answer(user_message, context)
 
-                    end = time.perf_counter()
-                    duration = (end - start) * 1000 
-                    log_data["tenant_name"]= 'xa_ba_diem'
-                    log_data["raw_query"] = origin_mess
-                    log_data["expanded_query"] = user_message
-                    log_data["answer"]= answer
-                    log_data["detected_category"]= category
-                    log_data["detected_subject"]= subject
-                    log_data["event_type"] = "normal"
-                    log_data["alias_score"]= chunks[0]["alias_score"]
-                    log_data["document_score"]= chunks[0]["document_score"]
-                    log_data["confidence_score"]= chunks[0]["alias_score"]
-                    log_data["session_chat"]= session_id
-                    log_data["response_time_ms"]= round(duration / 1000,2)
-                    create_log(log_data)
-                    yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
-                if flow_query == "complaint":
-                    end = time.perf_counter()
-                    duration = (end - start) * 1000 
-                    log_data["tenant_name"]= 'xa_ba_diem'
-                    log_data["raw_query"] = origin_mess
-                    log_data["expanded_query"] = user_message
-                    log_data["event_type"] = "complaint"
-                    log_data["reason"]= f"Nội dung thuộc chủ đề góp ý, phàn nàn"
-                    log_data["session_chat"]= session_id
-                    log_data["response_time_ms"]= round(duration / 1000,2)
-                    create_log(log_data)
-                    yield f"data: {json.dumps({'log': f'=> Phản hồi góp ý'})}\n\n"
+        #             end = time.perf_counter()
+        #             duration = (end - start) * 1000 
+        #             log_data["tenant_name"]= 'xa_ba_diem'
+        #             log_data["raw_query"] = origin_mess
+        #             log_data["expanded_query"] = user_message
+        #             log_data["answer"]= answer
+        #             log_data["detected_category"]= category
+        #             log_data["detected_subject"]= subject
+        #             log_data["event_type"] = "normal"
+        #             log_data["alias_score"]= chunks[0]["alias_score"]
+        #             log_data["document_score"]= chunks[0]["document_score"]
+        #             log_data["confidence_score"]= chunks[0]["alias_score"]
+        #             log_data["session_chat"]= session_id
+        #             log_data["response_time_ms"]= round(duration / 1000,2)
+        #             create_log(log_data)
+        #             yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
+        #         if flow_query == "complaint":
+        #             end = time.perf_counter()
+        #             duration = (end - start) * 1000 
+        #             log_data["tenant_name"]= 'xa_ba_diem'
+        #             log_data["raw_query"] = origin_mess
+        #             log_data["expanded_query"] = user_message
+        #             log_data["event_type"] = "complaint"
+        #             log_data["reason"]= f"Nội dung thuộc chủ đề góp ý, phàn nàn"
+        #             log_data["session_chat"]= session_id
+        #             log_data["response_time_ms"]= round(duration / 1000,2)
+        #             create_log(log_data)
+        #             yield f"data: {json.dumps({'log': f'=> Phản hồi góp ý'})}\n\n"
 
-                    yield f"data: {json.dumps({'replies': complaint_content, 'chunks': []})}\n\n"
-                if flow_query == "banned":
-                    yield f"data: {json.dumps({'log': f'=> Ngoài phạm vi'})}\n\n"
+        #             yield f"data: {json.dumps({'replies': complaint_content, 'chunks': []})}\n\n"
+        #         if flow_query == "banned":
+        #             yield f"data: {json.dumps({'log': f'=> Ngoài phạm vi'})}\n\n"
 
-                    end = time.perf_counter()
-                    duration = (end - start) * 1000 
-                    log_data["tenant_name"]= 'xa_ba_diem'
-                    log_data["raw_query"] = origin_mess
-                    log_data["expanded_query"] = user_message
-                    log_data["event_type"] = "out_of_scope"
-                    log_data["reason"]= f"LLM xác định => Chủ đề cấm không được trả lời"
-                    log_data["session_chat"]= session_id
-                    log_data["response_time_ms"]= round(duration / 1000,2)
-                    create_log(log_data)
-                    yield f"data: {json.dumps({'replies': out_of_score_content, 'chunks': []})}\n\n"
-            return
+        #             end = time.perf_counter()
+        #             duration = (end - start) * 1000 
+        #             log_data["tenant_name"]= 'xa_ba_diem'
+        #             log_data["raw_query"] = origin_mess
+        #             log_data["expanded_query"] = user_message
+        #             log_data["event_type"] = "out_of_scope"
+        #             log_data["reason"]= f"LLM xác định => Chủ đề cấm không được trả lời"
+        #             log_data["session_chat"]= session_id
+        #             log_data["response_time_ms"]= round(duration / 1000,2)
+        #             create_log(log_data)
+        #             yield f"data: {json.dumps({'replies': out_of_score_content, 'chunks': []})}\n\n"
+        #     return
     return Response(
         stream_with_context(generate()),
         mimetype="text/event-stream",
@@ -640,7 +698,7 @@ def chat_stream():
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no"  # cực quan trọng nếu có nginx
         }
-    )
+    )   
 
 @app.route('/api/chat', methods=['POST'])
 def chat():

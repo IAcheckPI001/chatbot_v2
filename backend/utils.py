@@ -17,7 +17,7 @@ THU_TUC_KEYWORDS = [
     "ket hon",
     "chung thuc",
     "lam the nao",
-    "can gi",
+    # "can gi",
     "nop truc tuyen",
     "truc tuyen",
     "giay to",
@@ -36,7 +36,7 @@ TONG_QUAN_INFO_KEYWORDS = [
     "dong dan",
     "ho dan",
     "bao nhieu nguoi",
-    "lanh dao",
+    # "lanh dao",
     "so dien thoai",
     "khu pho",
     "gio lam viec",
@@ -48,7 +48,7 @@ TONG_QUAN_INFO_KEYWORDS = [
     "lien he",
     "thanh lap",
     "nam nao",
-    "xa ba diem"
+    # "xa ba diem"
 ]
 
 NHAN_SU_INFO_KEYWORDS = [
@@ -56,29 +56,30 @@ NHAN_SU_INFO_KEYWORDS = [
     "nhan vien",
     "lanh dao",
     "dam nhiem",
-    "vai tro"
+    "vai tro",
+    "truong khu pho"
 ]
 
 CHUC_VU_INFO_KEYWORDS = [
-    "bi thu phuong",
+    # "bi thu phuong",
     "bi thu",
     "pho bi thu",
-    "bi thu dang uy",
-    "chu tich phuong",
+    # "bi thu dang uy",
+    # "chu tich phuong",
     "chu tich",
     "pho chu tich",
-    "pho chu tich phuong",
-    "bi thu doan phuong",
-    "bi thu doan",
-    "pho bi thu phuong",
-    "chu tich ubnd phuong",
-    "chu tich ubnd",
-    "pho chu tich ubnd phuong",
-    "pho chu tich ubnd",
-    "chu tich hdnd phuong",
-    "chu tich hdnd",
-    "pho chu tich hdnd phuong",
-    "pho chu tich hdnd",
+    # "pho chu tich phuong",
+    # "bi thu doan phuong",
+    # "bi thu doan",
+    # "pho bi thu phuong",
+    # "chu tich ubnd phuong",
+    # "chu tich ubnd",
+    # "pho chu tich ubnd phuong",
+    # "pho chu tich ubnd",
+    # "chu tich hdnd phuong",
+    # "chu tich hdnd",
+    # "pho chu tich hdnd phuong",
+    # "pho chu tich hdnd",
     "giam doc",
     "cong chuc",
     "vien chuc",
@@ -86,7 +87,8 @@ CHUC_VU_INFO_KEYWORDS = [
     "pho giam doc",
     "can bo",
     "chuyen vien",
-    "truong phong"
+    "truong phong",
+    "chuc vu"
 ]
 
 KHU_PHO_KEYWORDS = [
@@ -98,6 +100,17 @@ DS_KHU_PHO_KEYWORDS = [
     "danh sach",
     "so luong",
     "bao nhieu",
+    "co may",
+    "tong cong"
+]
+
+KHU_PHO_POPULATION_KWS = [
+    "dan",
+    "dan cu",
+    "dan so",
+    "so ho",
+    "ho dan",
+    "nguoi",
 ]
 
 CONTACT_INFO_KEYWORDS = [

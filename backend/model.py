@@ -148,15 +148,19 @@ Chỉ được chọn 1 subject trong danh sách:
 
 Nếu category = thong_tin_tong_quan
 Chỉ được chọn 1 subject trong danh sách:
-- thong_tin_khu_pho
+- tong_quan (thông tin về xã/phường, địa lý, đặc điểm)
+- thong_tin_khu_pho (thông tin chi tiết về 1 khu phố nào đó)
 - lich_lam_viec
-- thong_tin_lien_he
-- tong_quan
+- thong_tin_lien_he (không chứa chủ thể là người)
 
 Nếu category = to_chuc_bo_may
 Chỉ được chọn 1 subject trong danh sách:
 - nhan_su
 - chuc_vu
+
+Nếu category = phan_anh_kien_nghi
+Chỉ được chọn 1 subject trong danh sách:
+- tong_quan
 
 QUY TẮC:
 - Mỗi field chỉ là 1 chuỗi duy nhất.

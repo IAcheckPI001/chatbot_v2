@@ -25,6 +25,8 @@ const settingsRef = ref<HTMLElement | null>(null)
 // const sessionId = crypto.randomUUID()
 const originalData = ref<any>(null)
 
+const notedLogs = ref<Set<number>>(new Set())
+
 
 // đóng khi click ngoài
 function handleClickOutside(event: MouseEvent) {
@@ -35,6 +37,61 @@ function handleClickOutside(event: MouseEvent) {
     showSettings.value = false
   }
 }
+
+async function toggleNote(item: any) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/toggle-note/${item.id}`, {
+      method: 'POST'
+    })
+
+    const data = await res.json()
+
+    if (data.success) {
+      item.is_noted = data.is_noted
+    }
+
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+watch(notedLogs, () => {
+  localStorage.setItem(
+    "noted_logs",
+    JSON.stringify([...notedLogs.value])
+  )
+})
+
+
+const sortBy = ref<'text_content' | ''>('')      // hiện tại chỉ sort theo text_content
+const sortDir = ref<'asc' | 'desc'>('asc')
+
+function toggleSortText() {
+  if (sortBy.value !== 'text_content') {
+    sortBy.value = 'text_content'
+    sortDir.value = 'asc'
+  } else {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  }
+}
+
+const sortedFilteredChunks = computed(() => {
+  const arr = [...filteredChunks.value] // copy để không mutate computed gốc
+  if (sortBy.value !== 'text_content') return arr
+
+  arr.sort((a, b) => {
+    const A = (a.text_content ?? '').toString()
+    const B = (b.text_content ?? '').toString()
+
+    // so sánh tiếng Việt ổn hơn
+    const cmp = A.localeCompare(B, 'vi', { sensitivity: 'base' })
+    return sortDir.value === 'asc' ? cmp : -cmp
+  })
+
+  return arr
+})
+
+
 
 async function clearChat() {
 
@@ -133,7 +190,7 @@ async function sendMessage() {
   responses.value = []
   
   // switch to test section to show data-table
-  activeSection.value = 'test'
+  activeSection.value = 'log'
   
   // call backend API
   loadingChat.value = true
@@ -282,7 +339,8 @@ const filteredLog = computed(() => {
         .includes(searchKeyword.value.toLowerCase())
 
     return typeLogMatch && keywordMatch
-  })
+  }).slice()
+    .reverse()
 })
 
 function highlightText(text: string) {
@@ -919,9 +977,12 @@ function stopDrag() {
         <table>
           <thead>
             <tr>
+              <th class="col-index">Note</th>
               <th class="col-index">ID</th>
               <th class="col-question">Câu hỏi</th>
               <th class="col-question">Câu hỏi đã chuẩn hóa</th>
+              <th class="col-index">Category</th>
+              <th class="col-index">Subject</th>
               <th class="col-question">Câu trả lời</th>
               <th class="col-index">Loại phản hồi</th>
               <th class="col-reason">Lý do</th>
@@ -938,7 +999,12 @@ function stopDrag() {
                 {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
               </td>
             </tr>
-            <tr v-for="(item, idx) in filteredLog" :key="idx">
+            <tr v-for="(item, idx) in filteredLog" :key="idx" :class="{ noted: item.is_noted }">
+              <td class="col-index">
+                <button class="btn-note" @click="toggleNote(item)">
+                  ⭐
+                </button>
+              </td>
               <td class="col-index">{{ idx + 1 }}</td>
               <td class="col-content" style="width: 40%;">
                 <div 
@@ -951,6 +1017,12 @@ function stopDrag() {
                   class="content-text"
                   v-html="highlightText(item.expanded_query)"
                 ></div>
+              </td>
+              <td class="col-index">
+                <span>{{ item.detected_category || '-' }}</span>
+              </td>
+              <td class="col-index">
+                <span>{{ item.detected_subject || '-' }}</span>
               </td>
               <td class="col-content" style="width: 40%;">
                 <div 
@@ -980,6 +1052,23 @@ function stopDrag() {
           </tbody>
         </table>
       </div>
+      <!-- Debug Log Panel -->
+        <div class="log-panel" ref="logPanel">
+          <div class="log-header" @mousedown="startDrag">
+            <span>Debug Log</span>
+            <button @click="clearLogs">Clear</button>
+          </div>
+
+          <div class="log-body" ref="logBody">
+            <div 
+              v-for="(log, index) in logs" 
+              :key="index"
+              :class="['log-item', log.type]"
+            >
+              {{ log.message }}
+            </div>
+          </div>
+        </div>
     </section>
 
     <section class="data-chunks-table" v-if="activeSection === 'chunks'" :class="{ 'with-chat': isOpen }">
@@ -1051,7 +1140,12 @@ function stopDrag() {
           <thead>
             <tr>
               <th class="col-index">ID</th>
-              <th class="col-content">Text Content</th>
+              <th class="col-content sortable" @click="toggleSortText">
+                Text Content
+                <span v-if="sortBy === 'text_content'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
               <th class="col-index">Category</th>
               <th class="col-index">Subject</th>
               <!-- <th class="col-index">Keywords</th> -->
@@ -1065,7 +1159,7 @@ function stopDrag() {
                 {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
               </td>
             </tr>
-            <tr v-for="(item, idx) in filteredChunks" :key="idx">
+            <tr v-for="(item, idx) in sortedFilteredChunks" :key="idx">
               <td class="col-index">{{ idx + 1 }}</td>
               <td class="col-content">
                 <div v-if="editingId === item.id" class="edit-input-wrapper">
@@ -1090,7 +1184,7 @@ function stopDrag() {
               </td>
               <td class="col-index">
                 <div v-if="editingId === item.id">
-                    <div v-if="item.category === 'thu_tuc_hanh_chinh'" class="edit-input-wrapper">
+                    <div v-if="editingData.category === 'thu_tuc_hanh_chinh'" class="edit-input-wrapper">
                       <select v-model="editingData.subject" class="edit-input edit-select">
                         <option value="">-- Chọn --</option>
                         <option value="tu_phap_ho_tich">tu_phap_ho_tich</option>
@@ -1114,7 +1208,7 @@ function stopDrag() {
                         <option value="tai_chinh_thue_phi">tai_chinh_thue_phi</option>
                       </select>
                     </div>
-                    <div v-if="item.category === 'thong_tin_tong_quan'" class="edit-input-wrapper">
+                    <div v-if="editingData.category === 'thong_tin_tong_quan'" class="edit-input-wrapper">
                       <select v-model="editingData.subject" class="edit-input edit-select">
                         <option value="">-- Chọn --</option>
                         <option value="thong_tin_khu_pho">thong_tin_khu_pho</option>
@@ -1123,7 +1217,7 @@ function stopDrag() {
                         <option value="tong_quan">tong_quan</option>
                       </select>
                     </div>
-                    <div v-if="item.category === 'to_chuc_bo_may'" class="edit-input-wrapper">
+                    <div v-if="editingData.category === 'to_chuc_bo_may'" class="edit-input-wrapper">
                       <select v-model="editingData.subject" class="edit-input edit-select">
                         <option value="">-- Chọn --</option>
                         <option value="nhan_su">nhan_su</option>
@@ -2192,5 +2286,20 @@ textarea.edit-input {
   top: 0;
   background: #f9fafb;   /* bắt buộc có background */
   z-index: 5;
+}
+
+.noted {
+  background: #fff3a3 !important;
+}
+
+.btn-note {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.btn-note:hover {
+  transform: scale(1.2);
 }
 </style>
