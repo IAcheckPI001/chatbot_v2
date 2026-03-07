@@ -4,7 +4,7 @@
 import re
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Any
-from utils import KHU_PHO_KEYWORDS, DS_KHU_PHO_KEYWORDS, KHU_PHO_POPULATION_KWS, LICH_LAM_VIEC_KEYWORDS, CHUC_VU_INFO_KEYWORDS, CONTACT_INFO_KEYWORDS, NHAN_SU_INFO_KEYWORDS, TONG_QUAN_INFO_KEYWORDS
+from utils import CONTACT_INFO_KEYWORDS, LICH_LAM_VIEC_KEYWORDS ,CHUC_VU_INFO_KEYWORDS, NHAN_SU_INFO_KEYWORDS, GENERAL_INFO_SUBJECT_KEYWORDS, prepare_subject_keywords
 
 
 PERSON_MARKERS = [
@@ -14,7 +14,7 @@ PERSON_MARKERS = [
 
 PERSON_PHONE_PATTERNS = [
     r"\bso dien thoai cua\b",     # "số điện thoại của chị Lan"
-    r"\bso cua\b",              # "sđt của..."
+    r"\bso cua\b",            # "sđt của..."
     r"\blien he (chi|anh|ong|ba)\b",
 ]
 
@@ -133,12 +133,10 @@ THU_TUC_KEYWORDS_WEAK = [
     "lam the nao",
     "giay to",
     "giay phep",
-    "khai sinh",
-    "khai tu",
-    "ket hon",
+    "dieu chinh",
+    "gia han",
     "chung thuc",
     "quy hoach dat",
-
     "xin", "cap lai", "doi", "dieu chinh", "gia han", "tam ngung", "giai the", "cham dut"
 ]
 
@@ -155,15 +153,30 @@ NON_PROC_PATTERNS = ["la gi", "nghia la gi", "tai sao", "vi sao", "khac gi", "so
 SPECIAL_TOPIC_TO_SUBJECT = {
     # Công thương: rượu/thuốc lá
     "cong_thuong": [
-        "ruou", "ban ruou", "san xuat ruou", "kinh doanh ruou",
+        "ban ruou", "san xuat ruou", "kinh doanh ruou",
         "thuoc la", "ban thuoc la"
     ],
 
     # Đất đai: sổ đỏ / GCN / biến động / chuyển nhượng
     "dat_dai": [
-        "so do", "so hong", "gcn", "giay chung nhan",
-        "quyen su dung dat", "chuyen nhuong", "tang cho", "thua ke",
-        "tach thua", "hop thua", "dang ky bien dong"
+        "so do",
+        "so hong",
+        "giay chung nhan",
+        "gcn quyen su dung dat",
+        "quyen su dung dat",
+
+        "sang ten",
+        "chuyen nhuong",
+        "tang cho",
+        "thua ke",
+
+        "tach thua",
+        "hop thua",
+
+        "dang ky bien dong",
+        "dang ky dat dai",
+
+        "chuyen muc dich su dung dat",
     ],
 
     # Xây dựng nhà ở
@@ -176,7 +189,12 @@ SPECIAL_TOPIC_TO_SUBJECT = {
     "doanh_nghiep": [
         "doanh nghiep", "dang ky kinh doanh", "gpkd",
         "ho kinh doanh", "hkd", "ma so thue",
-        "giai the", "tam ngung", "thay doi dang ky"
+        "giai the", "tam ngung", "thay doi dang ky",
+        "dang ky hkd",
+        "mo ho kinh doanh",
+        "thanh lap ho kinh doanh",
+        "dang ky ho kinh doanh",
+        "ma so doanh nghiep"
     ],
 
     # Giao thông vận tải
@@ -192,7 +210,12 @@ SPECIAL_TOPIC_TO_SUBJECT = {
         "dang ky phuong tien",
         "bien so",
         "dang ky xe may",
-        "dang ky o to"
+        "dang ky o to",
+        "dang ky xe may",
+        "dang ky xe o to",
+        "cap doi gplx",
+        "doi bang lai",
+        "bang lai xe"
     ],
 
     # Lao động việc làm
@@ -210,15 +233,21 @@ SPECIAL_TOPIC_TO_SUBJECT = {
     "bao_hiem_an_sinh": [
         "bao hiem xa hoi", "bhxh", "bao hiem y te", "bhyt",
         "bao hiem that nghiep", "tro cap", "bao tro xa hoi", "mai tang", "tien tuat",
-        "nguoi vo gia cu", "vo gia cu"
-        "nguoi lang thang",
-        "bao tro xa hoi", "nguoi co cong", "tre em bi xam hai", "cham soc thay the", "can thiep tre em"
+        "nguoi vo gia cu", "vo gia cu", "nha o xa hoi",
+        "nguoi lang thang", "nguoi co cong", "tre em bi xam hai", "cham soc thay the", "can thiep tre em"
     ],
 
     # Tư pháp hộ tịch (nếu bạn muốn bridge luôn cho nhóm này)
     "tu_phap_ho_tich": [
         "khai sinh", "khai tu", "ket hon", "trich luc",
-        "chung thuc", "quoc tich", "giam ho", "nhan cha me con", "nuoi con nuoi"
+        "chung thuc", "quoc tich", "giam ho", "nhan cha me con", "nuoi con nuoi",
+        "tam tru",
+        "tam vang","dang ky tam tru",
+        "dang ky tam vang",
+        "khai bao tam tru",
+        "khai bao tam vang",
+        "so tam tru","cu tru",
+        "luu tru"
     ],
 }
 
@@ -237,7 +266,7 @@ ROLE_KEYWORDS = [
     "pho truong phong",
     "cong chuc",
     "vien chuc",
-    "can bo",
+    # "can bo",
     "chuyen vien",
 ]
 
@@ -274,8 +303,8 @@ def detect_special_subject_bridge(q_norm: str) -> Tuple[bool, Optional[str], Lis
         return False, None, []
 
     # Ưu tiên cong_thuong trước để tránh 'thuoc' (y_te) ăn nhầm 'thuoc la'
-    priority = ["cong_thuong", "dat_dai", "xay_dung_nha_o", "doanh_nghiep",
-                "giao_thong_van_tai", "lao_dong_viec_lam", "bao_hiem_an_sinh", "y_te", "tu_phap_ho_tich"]
+    priority = ["cong_thuong", "dat_dai", "bao_hiem_an_sinh", "xay_dung_nha_o", "doanh_nghiep",
+                "giao_thong_van_tai", "lao_dong_viec_lam", "y_te", "tu_phap_ho_tich"]
 
     for subject in priority:
         topic_kws = SPECIAL_TOPIC_TO_SUBJECT.get(subject, [])
@@ -319,7 +348,7 @@ def detect_subject_v2(text_norm: str, prepared_keywords: Dict[str, List[Tuple[st
 # -------------------------
 # 5) classify_v2: trả category, subject, confidence, signals, intent, need_llm
 # -------------------------
-
+GENERAL_PREPARED = prepare_subject_keywords(GENERAL_INFO_SUBJECT_KEYWORDS)
 def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
     """
     Returns:
@@ -342,20 +371,20 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
 
     hits_chuc_vu = match_keywords(q_norm, CHUC_VU_INFO_KEYWORDS)       # list của bạn
     hits_nhan_su = match_keywords(q_norm, NHAN_SU_INFO_KEYWORDS)        # list của bạn
-    hits_khu_pho = match_keywords(q_norm, KHU_PHO_KEYWORDS)             # list của bạn
+    # hits_khu_pho = match_keywords(q_norm, KHU_PHO_KEYWORDS)             # list của bạn
     hits_contact = match_keywords(q_norm, CONTACT_INFO_KEYWORDS)        # list của bạn
     hits_lich = match_keywords(q_norm, LICH_LAM_VIEC_KEYWORDS)          # list của bạn
-    hits_tong_quan = match_keywords(q_norm, TONG_QUAN_INFO_KEYWORDS)    # list của bạn
+    # hits_tong_quan = match_keywords(q_norm, TONG_QUAN_INFO_KEYWORDS)    # list của bạn
 
     # lưu signals để log
     if hits_thu_tuc_strong: signals["thu_tuc_strong"] = hits_thu_tuc_strong
     if hits_thu_tuc_weak: signals["thu_tuc_weak"] = hits_thu_tuc_weak
     if hits_chuc_vu: signals["chuc_vu"] = hits_chuc_vu
     if hits_nhan_su: signals["nhan_su"] = hits_nhan_su
-    if hits_khu_pho: signals["khu_pho"] = hits_khu_pho
+    # if hits_khu_pho: signals["khu_pho"] = hits_khu_pho
     if hits_contact: signals["contact"] = hits_contact
     if hits_lich: signals["lich"] = hits_lich
-    if hits_tong_quan: signals["tong_quan"] = hits_tong_quan
+    # if hits_tong_quan: signals["tong_quan"] = hits_tong_quan
 
     # --- scoring (có trọng số) ---
     # thủ tục: strong quan trọng hơn nhiều
@@ -364,8 +393,8 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
     contact_score = len(hits_contact) * 2
     chuc_vu_score = len(hits_chuc_vu) * 2
     nhan_su_score = len(hits_nhan_su) * 2
-    khu_pho_score = len(hits_khu_pho) * 2
-    tong_quan_score = len(hits_tong_quan) * 1
+    # khu_pho_score = len(hits_khu_pho) * 2
+    # tong_quan_score = len(hits_tong_quan) * 1
 
     # --- conflict detection ---
     # mâu thuẫn khi thủ tục mạnh nhưng đồng thời dính tổ chức/bộ máy mạnh (hoặc ngược lại)
@@ -394,7 +423,8 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
 
     conflict = (not (has_strong or has_combo)) and (chuc_vu_score >= 2 or nhan_su_score >= 2) and thu_tuc_score >= 3
 
-    other_max = max(lich_score, contact_score, chuc_vu_score, nhan_su_score, khu_pho_score, tong_quan_score)
+    # other_max = max(lich_score, contact_score, chuc_vu_score, nhan_su_score, khu_pho_score, tong_quan_score)
+    other_max = max(chuc_vu_score, nhan_su_score)
 
     bridge_ok, bridge_subject, bridge_hits = detect_special_subject_bridge(q_norm)
 
@@ -403,13 +433,14 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
     signals["scores"] = {
         "thu_tuc": thu_tuc_score,
         "contact": contact_score,
-        "khu_pho": khu_pho_score,
+        # "khu_pho": khu_pho_score,
         "nhan_su": nhan_su_score
     }
     if bridge_ok:
         signals["procedure_bridge"] = bridge_hits
         signals["procedure_bridge_subject"] = [bridge_subject]
         is_procedure = True 
+    
 
     # 1) Thủ tục (chỉ chốt khi đủ mạnh)
     if is_procedure:  # ít nhất 1 strong (3 điểm) hoặc nhiều weak cộng lại
@@ -441,6 +472,18 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
         category = "thong_tin_tong_quan"
         subject = "lich_lam_viec"
         confidence = 0.85
+    
+    elif is_phone_of_person(q_norm):
+        category = "thong_tin_tong_quan"
+        subject = "nhan_su"
+        confidence = 0.9
+        signals["person_phone"] = True
+    
+    # 3) Liên hệ
+    elif contact_score >= 2:
+        category = "thong_tin_tong_quan"
+        subject = "thong_tin_lien_he"
+        confidence = 0.85
 
     # 4) Chức vụ / Nhân sự
     elif chuc_vu_score >= 2:
@@ -453,42 +496,58 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
         subject = "nhan_su"
         confidence = 0.75
 
-            # 3) Liên hệ
-    elif contact_score >= 2:
-        category = "thong_tin_tong_quan"
-        subject = "thong_tin_lien_he"
-        confidence = 0.85
-        if is_phone_of_person(q_norm):
-            signals["person_phone"] = True
+    # 5) General info subjects
+    else:
+
+        general_subject, general_conf, general_hits = detect_subject_v2(
+            q_norm,
+            GENERAL_PREPARED,
+            min_score=2
+        )
+
+        if general_subject:
+            category = "thong_tin_tong_quan"
+            subject = general_subject
+
+            confidence = min(0.9, 0.6 + general_conf * 0.4)
+
+            signals["general_subject_hits"] = general_hits
+        else:
+            need_llm = True
 
     # 5) Khu phố
-    elif khu_pho_score >= 2:
-        category = "thong_tin_tong_quan"
-        subject = "thong_tin_khu_pho"
+    # elif khu_pho_score >= 2:
+    #     category = "thong_tin_tong_quan"
+    #     subject = "thong_tin_khu_pho"
 
-        if has_any(q_norm, DS_KHU_PHO_KEYWORDS) and has_any(q_norm, KHU_PHO_KEYWORDS):
-            subject = "tong_quan"
+    #     if has_any(q_norm, DS_KHU_PHO_KEYWORDS) and has_any(q_norm, KHU_PHO_KEYWORDS):
+    #         subject = "tong_quan"
 
-        confidence = 0.75
+    #     confidence = 0.75
     
 
         # if is_phone_of_person(q_norm):
             
 
     # 6) Tổng quan
-    elif tong_quan_score >= 1:
-        category = "thong_tin_tong_quan"
-        subject = "tong_quan"
-        confidence = 0.6
+    # elif tong_quan_score >= 1:
+    #     category = "thong_tin_tong_quan"
+    #     subject = "tong_quan"
+    #     confidence = 0.6
 
-    else:
-        need_llm = True
-
+    # else:
+    #     need_llm = True
+    signals["general_subject"] = subject
     # Nếu conflict hoặc confidence thấp -> gợi ý LLM
     if conflict:
         need_llm = True
+
     if category is not None and confidence < 0.55:
         need_llm = True
+        subject = None
+
+    if need_llm and subject is None:
+        category = None
 
     intent = detect_intent(q_norm, category)
 

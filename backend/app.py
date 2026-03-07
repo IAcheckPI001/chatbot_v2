@@ -16,7 +16,7 @@ from model import rewrite_query, detect_query, llm_answer, classify_llm
 from test_demo import classify_v2
 from system import apply_semantic_guard
 from embedding import get_embedding
-from utils import SUBJECT_KEYWORDS, classify, prepare_subject_keywords
+from utils import SUBJECT_KEYWORDS, GENERAL_INFO_SUBJECT_KEYWORDS, classify, prepare_subject_keywords
 
 
 PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
@@ -464,6 +464,7 @@ def chat_stream():
 
         if res["need_llm"]:
             re_check = True
+            yield f"data: {json.dumps({'log': f'Bắt đầu sử dụng LLM để trích xuất'})}\n\n"
             category_llm, subject_llm = classify_llm(user_message)
             yield f"data: {json.dumps({'log': f'LLM classify => Category: {category_llm}, Subject: {subject_llm}'})}\n\n"
 
@@ -472,18 +473,18 @@ def chat_stream():
             subject = subject_llm or subject
 
 
-        end = time.perf_counter()
-        duration = (end - start) * 1000 
-        log_data["tenant_name"]= 'xa_ba_diem'
-        log_data["raw_query"] = origin_mess
-        log_data["expanded_query"] = user_message
-        log_data["answer"]= ""
-        log_data["event_type"]= "normal"
-        log_data["detected_category"]= category
-        log_data["detected_subject"]= subject
-        log_data["session_chat"]= session_id
-        log_data["response_time_ms"]= round(duration / 1000,2)
-        create_log(log_data)
+        # end = time.perf_counter()
+        # duration = (end - start) * 1000 
+        # log_data["tenant_name"]= 'xa_ba_diem'
+        # log_data["raw_query"] = origin_mess
+        # log_data["expanded_query"] = user_message
+        # log_data["answer"]= ""
+        # log_data["event_type"]= "normal"
+        # log_data["detected_category"]= category
+        # log_data["detected_subject"]= subject
+        # log_data["session_chat"]= session_id
+        # log_data["response_time_ms"]= round(duration / 1000,2)
+        # create_log(log_data)
 
         # response = supabase.rpc(
         #     "search_documents_full_hybrid_v6",

@@ -86,7 +86,55 @@ Câu hỏi: "{query}"
 CATEGORIES = [
     "thong_tin_tong_quan",
     "to_chuc_bo_may",
-    "thu_tuc_hanh_chinh"
+    "thu_tuc_hanh_chinh",
+    "phan_anh_kien_nghi",
+    "tuong_tac"
+]
+
+SUBJECT_TONG_QUAN = [
+    "gioi_thieu_dia_phuong",
+    "lich_su_hanh_chinh",
+    "dia_ly",
+    "thong_ke",
+    "giao_thong",
+    "lich_lam_viec",
+    "thong_tin_lien_he",
+    "dich_vu_cong_truc_tuyen"
+]
+
+SUBJECT_THU_TUC = [
+    "tu_phap_ho_tich",
+    "doanh_nghiep",
+    "giao_thong_van_tai",
+    "dat_dai",
+    "xay_dung_nha_o",
+    "dau_tu",
+    "lao_dong_viec_lam",
+    "bao_hiem_an_sinh",
+    "giao_duc_dao_tao",
+    "y_te",
+    "tai_nguyen_moi_truong",
+    "van_hoa_the_thao_du_lich",
+    "khoa_hoc_cong_nghe",
+    "thong_tin_truyen_thong",
+    "nong_nghiep",
+    "cong_thuong",
+    "tai_chinh_thue_phi",
+]
+
+SUBJECT_TO_CHUC_BO_MAY = [
+    "chuc_vu",
+    "nhan_su"    
+]
+
+SUBJECT_PHAN_ANH_KIEN_NGHI = [
+    "ha_tang",
+    "moi_truong",
+    "an_ninh_trat_tu",
+    "giao_thong",
+    "do_thi",
+    "khieu_nai_to_cao",
+    "he_thong"
 ]
 
 SUBJECTS = [
@@ -116,68 +164,203 @@ SUBJECTS = [
 ]
 
 def classify_llm(query: str):
-    prompt = f"""
-Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường.
+    prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường.
 
-BƯỚC 1: Chọn category (chỉ 1 trong 3):
-- thong_tin_tong_quan
-- to_chuc_bo_may (bao gồm ai phụ trách, đảm nhiệm, vai trò, chức danh/bí thư, chủ tịch, Phó chủ tịch, giám đốc, phó giám đốc, trưởng phòng, Phó trưởng phòng/công chức, viên chức, cán bộ, chuyên viên)
-- thu_tuc_hanh_chinh
+NHIỆM VỤ
+Xác định category và subject của câu hỏi.
 
-BƯỚC 2: Chọn subject PHÙ HỢP VỚI category:
+CATEGORY (chỉ chọn 1):
+
+1. thu_tuc_hanh_chinh  
+Câu hỏi về hồ sơ, đăng ký, cấp giấy, thủ tục, nộp ở đâu, cần giấy tờ gì.
+
+2. to_chuc_bo_may  
+Câu hỏi về cán bộ, chức danh, ai phụ trách, ai là chủ tịch, phó chủ tịch.
+
+3. thong_tin_tong_quan  
+Thông tin chung: địa chỉ, khu phố, giờ làm việc, số điện thoại.
+
+4. phan_anh_kien_nghi
+Câu hỏi về phản ánh, kiến nghị, báo lỗi, báo vi phạm, than phiền, góp ý về các vấn đề đang xảy ra trong thực tế tại địa phương như hạ tầng, môi trường, giao thông, trật tự, đô thị.
+
+5. tuong_tac (tương tác chung, không thuộc 4 category trên, ví dụ: "cảm ơn", "xin chào", "mày là chatbot à")
+---
+
+SUBJECT
 
 Nếu category = thu_tuc_hanh_chinh
-Chỉ được chọn 1 subject trong danh sách:
-- tu_phap_ho_tich
-- doanh_nghiep
-- giao_thong_van_tai
-- dat_dai
-- xay_dung_nha_o
-- dau_tu
-- lao_dong_viec_lam
-- bao_hiem_an_sinh
-- giao_duc_dao_tao
-- y_te
-- tai_nguyen_moi_truong
-- van_hoa_the_thao_du_lich
-- khoa_hoc_cong_nghe
-- thong_tin_truyen_thong
-- nong_nghiep
-- cong_thuong
-- tai_chinh_thue_phi
+
+- tu_phap_ho_tich (khai sinh, khai tử, kết hôn, chứng thực, tạm trú, tạm vắng, giám hộ, nhận cha mẹ con, nuôi con nuôi)
+- doanh_nghiep (đăng ký kinh doanh, hộ kinh doanh)
+- giao_thong_van_tai (đăng ký phương tiện, đăng kiểm, giấy phép lái xe, vận tải, bến bãi, hàng không)
+- dat_dai (sổ đỏ, quyền sử dụng đất)
+- xay_dung_nha_o (giấy phép xây dựng, sửa chữa, cải tạo, hoàn công, nhà ở, chung cư, quy hoạch xây dựng)
+- dau_tu (chủ trương đầu tư, giấy chứng nhận đăng ký đầu tư, ưu đãi đầu tư, dự án đầu tư)
+- giao_duc_dao_tao (cơ sở giáo dục, hoạt động giáo dục, văn bằng, chứng chỉ, tuyển sinh, chuyển trường, học bổng)
+- lao_dong_viec_lam (hợp đồng lao động, tranh chấp lao động, an toàn lao động, việc làm, đào tạo nghề, lao động nước ngoài)
+- bao_hiem_an_sinh (BHXH, BHYT, hộ nghèo, trợ cấp xã hội, nhà ở xã hội)
+- y_te (an toàn thực phẩm, trang thiết bị y tế, an toàn thực phẩm, dịch bệnh)
+- tai_nguyen_moi_truong (môi trường, tài nguyên nước, khoáng sản, biến đổi khí hậu, thiên tai)
+- cong_thuong (rượu, thuốc lá, điện lực, hóa chất, xúc tiến thương mại, quản lý thị trường, xuất nhập khẩu)
+- van_hoa_the_thao_du_lich (văn hóa, nghệ thuật biểu diễn, quảng cáo, xuất bản, thể thao, du lịch, lễ hội, di sản)
+- tai_chinh_thue_phi (thuế, phí, lệ phí, hải quan, ngân sách, tài sản công)
+- khoa_hoc_cong_nghe (khoa học công nghệ, sở hữu trí tuệ, chuyển giao công nghệ)
+- thong_tin_truyen_thong (báo chí, phát thanh, truyền hình, mạng xã hội, an toàn thông tin)
+- nong_nghiep (trồng trọt, chăn nuôi, thủy sản, thú y)
 
 Nếu category = thong_tin_tong_quan
-Chỉ được chọn 1 subject trong danh sách:
-- tong_quan (thông tin về xã/phường, địa lý, đặc điểm)
-- thong_tin_khu_pho (thông tin chi tiết về 1 khu phố nào đó)
+
+- gioi_thieu_dia_phuong
+- lich_su_hanh_chinh
+- dia_ly (vị trí, địa chỉ, địa lý, tiếp giáp, nằm ở đâu, thuộc quận nào)
+- thong_ke (số lượng thống kê về dân số, kinh tế, xã hội, khu phố, diện tích... của địa phương)
+- giao_thong
 - lich_lam_viec
-- thong_tin_lien_he (không chứa chủ thể là người)
+- thong_tin_lien_he (không chứa chủ thể là người, ví dụ: "số điện thoại của UBND", "địa chỉ email của phường", "cách liên hệ với phường")
 
 Nếu category = to_chuc_bo_may
-Chỉ được chọn 1 subject trong danh sách:
+
 - nhan_su
 - chuc_vu
 
 Nếu category = phan_anh_kien_nghi
-Chỉ được chọn 1 subject trong danh sách:
-- tong_quan
 
-QUY TẮC:
-- Mỗi field chỉ là 1 chuỗi duy nhất.
-- Phải chọn đúng subject theo category
-- Không được trả về mảng.
-- Không giải thích.
-- Không được tạo giá trị ngoài danh sách.
+- ha_tang (điện, nước, cống thoát nước, đường hư, ngập nước, chiếu sáng công cộng, công trình công cộng hư hỏng)
+- moi_truong (rác thải, ô nhiễm, mùi hôi, nước thải, vệ sinh môi trường)
+- an_ninh_trat_tu (mất trật tự, gây rối, cờ bạc, đánh nhau, tụ tập, trộm cắp, an ninh khu vực)
+- do_thi (lấn chiếm vỉa hè, xây dựng trái phép, quảng cáo sai quy định, mỹ quan đô thị)
+- giao_thong (kẹt xe, đậu xe sai quy định, tai nạn, biển báo, tín hiệu giao thông, lấn chiếm lòng lề đường)
+- khieu_nai_to_cao (khiếu nại, tố cáo về cán bộ, dịch vụ công, tham nhũng, tiêu cực, vi phạm pháp luật)
+- he_thong (lỗi chatbot, thông tin sai, trải nghiệm người dùng, đề xuất cải thiện)
 
-Chỉ trả về JSON đúng format:
+---
+
+QUY TẮC
+
+- Chỉ chọn subject phù hợp với category
+- Nếu câu hỏi vừa có dấu hiệu thủ tục vừa có nội dung báo sự cố/vấn đề đang xảy ra thực tế, ưu tiên chọn phan_anh_kien_nghi.
+- Nếu không chắc chắn, hãy chọn subject gần nhất theo lĩnh vực của câu hỏi.
+- Không giải thích
+- Không tạo giá trị mới
+- Trả về JSON
+
+FORMAT
 
 {{
   "category": "",
   "subject": ""
 }}
 
-Câu hỏi: "{query}"
+Câu hỏi:
+"{query}"
 """
+
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content.strip()
+        check = False
+
+        data = json.loads(raw)
+
+        category = data.get("category")
+        subject = data.get("subject")
+
+        # Validate output
+        # if category in CATEGORIES and subject in SUBJECTS:
+        #     return category, subject
+
+        print(category, subject)
+
+        if category == "thu_tuc_hanh_chinh" and subject in SUBJECT_THU_TUC:
+            print(category, subject)
+            return category, subject
+        
+        if category == "to_chuc_bo_may" and subject in SUBJECT_TO_CHUC_BO_MAY:
+            print(category, subject)
+            return category, subject
+        
+        if category == "thong_tin_tong_quan" and subject in SUBJECT_TONG_QUAN:
+            print(category, subject)
+            return category, subject
+        
+        if category == "phan_anh_kien_nghi" and subject in SUBJECT_PHAN_ANH_KIEN_NGHI:
+            print(category, subject)
+            return category, subject
+        
+        if category == "tuong_tac":
+            print(category, subject)
+            return category, subject
+
+        # Nếu LLM trả sai → fallback None
+        return None, None
+
+    except Exception as e:
+        print("LLM classify error:", e)
+        return None, None
+
+# def classify_llm(query: str):
+#     prompt = f"""
+# Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường.
+
+# BƯỚC 1: Chọn category (chỉ 1 trong 3):
+# - thong_tin_tong_quan
+# - to_chuc_bo_may (bao gồm ai phụ trách, đảm nhiệm, vai trò, chức danh/bí thư, chủ tịch, Phó chủ tịch, giám đốc, phó giám đốc, trưởng phòng, Phó trưởng phòng/công chức, viên chức, cán bộ, chuyên viên)
+# - thu_tuc_hanh_chinh
+
+# BƯỚC 2: Chọn subject PHÙ HỢP VỚI category:
+
+# Nếu category = thu_tuc_hanh_chinh
+# Chỉ được chọn 1 subject trong danh sách:
+# - tu_phap_ho_tich
+# - doanh_nghiep
+# - giao_thong_van_tai
+# - dat_dai
+# - xay_dung_nha_o
+# - dau_tu
+# - lao_dong_viec_lam
+# - bao_hiem_an_sinh
+# - giao_duc_dao_tao
+# - y_te
+# - tai_nguyen_moi_truong
+# - van_hoa_the_thao_du_lich
+# - khoa_hoc_cong_nghe
+# - thong_tin_truyen_thong
+# - nong_nghiep
+# - cong_thuong
+# - tai_chinh_thue_phi
+
+# Nếu category = thong_tin_tong_quan
+# Chỉ được chọn 1 subject trong danh sách:
+# - tong_quan (thông tin về xã/phường, địa lý, đặc điểm)
+# - thong_tin_khu_pho (thông tin chi tiết về 1 khu phố nào đó)
+# - lich_lam_viec
+# - thong_tin_lien_he (không chứa chủ thể là người)
+
+# Nếu category = to_chuc_bo_may
+# Chỉ được chọn 1 subject trong danh sách:
+# - nhan_su
+# - chuc_vu
+
+# Nếu category = phan_anh_kien_nghi
+# Chỉ được chọn 1 subject trong danh sách:
+# - tong_quan
+
+# QUY TẮC:
+# - Mỗi field chỉ là 1 chuỗi duy nhất.
+# - Phải chọn đúng subject theo category
+# - Không được trả về mảng.
+# - Không giải thích.
+# - Không được tạo giá trị ngoài danh sách.
+
+# Chỉ trả về JSON đúng format:
+
+# {{
+#   "category": "",
+#   "subject": ""
+# }}
+
+# Câu hỏi: "{query}"
+# """
 
     try:
         response = llm.invoke(prompt)

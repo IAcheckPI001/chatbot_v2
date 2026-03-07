@@ -25,36 +25,87 @@ THU_TUC_KEYWORDS = [
     "giay phep",
     "quy hoach dat"
 ]
+GENERAL_INFO_SUBJECT_KEYWORDS = {
 
-TONG_QUAN_INFO_KEYWORDS = [
-    "vi tri",
-    "dia ly",
-    "dia chi",
-    "dien tich",
-    "dan so",
-    "dan cu",
-    "dong dan",
-    "ho dan",
-    "bao nhieu nguoi",
-    # "lanh dao",
-    "so dien thoai",
-    "khu pho",
-    "gio lam viec",
-    "lich lam viec",
-    "website",
-    "email",
-    "duong day nong",
-    "nam o dau",
-    "lien he",
-    "thanh lap",
-    "nam nao",
-    # "xa ba diem"
-]
+    "gioi_thieu_dia_phuong": [
+        "gioi thieu",
+        "tong quan",
+        "dac diem",
+        "noi bat",
+        "ve xa",
+        "ve phuong"
+    ],
+
+    "lich_su_hanh_chinh": [
+        "thanh lap",
+        "sap nhap",
+        "doi ten",
+        "lich su",
+        "nam nao thanh lap",
+        "truoc day",
+        "nghi quyet",
+    ],
+
+    "dia_ly": [
+        "vi tri",
+        "dia ly",
+        "dia chi",
+        "tiep giap",
+        "nam o dau",
+        "thuoc quan nao",
+        "thuoc huyen nao",
+        "thuoc tinh nao",
+        "ranh gioi",
+    ],
+
+    "thong_ke": [
+        "dien tich",
+        "dan so",
+        "bao nhieu nguoi",
+        "ho dan",
+        "so ho",
+        "dan cu",
+        "mat do dan so",
+        "bao nhieu khu pho",
+        "so luong",
+        "danh sach"
+    ],
+
+    "giao_thong": [
+        "quoc lo",
+        "duong",
+        "ket noi",
+        "giao thong",
+        "tuyen duong",
+        "ha tang giao thong"
+    ],
+
+    "lich_lam_viec": [
+        "gio lam viec",
+        "lich lam viec",
+        "lam viec tu",
+        "may gio",
+        "thu 2",
+        "thu ba",
+        "chu nhat",
+        "nghi le"
+    ],
+
+    "thong_tin_lien_he": [
+        "so dien thoai",
+        "duong day nong",
+        "website",
+        "email",
+        "fanpage",
+        "zalo",
+        "lien he",
+        "dia chi ubnd"
+    ]
+}
 
 NHAN_SU_INFO_KEYWORDS = [
     "phu trach",
     "nhan vien",
-    "lanh dao",
     "dam nhiem",
     "vai tro",
     "truong khu pho"
@@ -85,33 +136,32 @@ CHUC_VU_INFO_KEYWORDS = [
     "vien chuc",
     "pho truong phong",
     "pho giam doc",
-    "can bo",
+    # "can bo",
     "chuyen vien",
     "truong phong",
-    "chuc vu"
 ]
 
-KHU_PHO_KEYWORDS = [
-    "khu pho",
-    "kp",
-]
+# KHU_PHO_KEYWORDS = [
+#     # "khu pho",
+#     # "kp",
+# ]
 
-DS_KHU_PHO_KEYWORDS = [
-    "danh sach",
-    "so luong",
-    "bao nhieu",
-    "co may",
-    "tong cong"
-]
+# DS_KHU_PHO_KEYWORDS = [
+#     # "danh sach",
+#     # "so luong",
+#     # "bao nhieu",
+#     # "co may",
+#     # "tong cong"
+# ]
 
-KHU_PHO_POPULATION_KWS = [
-    "dan",
-    "dan cu",
-    "dan so",
-    "so ho",
-    "ho dan",
-    "nguoi",
-]
+# KHU_PHO_POPULATION_KWS = [
+#     # "dan",
+#     # "dan cu",
+#     # "dan so",
+#     # "so ho",
+#     # "ho dan",
+#     # "nguoi",
+# ]
 
 CONTACT_INFO_KEYWORDS = [
     "duong day nong",
@@ -121,7 +171,7 @@ CONTACT_INFO_KEYWORDS = [
     "email",
     "fanpage",
     "so dien thoai",
-    "dia chi",
+    # "dia chi",
     "nam o dau",
     "goi dien",
     "zalo",
@@ -476,17 +526,17 @@ def classify(q: str, PREPARED):
     if chuc_vu_score >= 1:
         return "to_chuc_bo_may", "chuc_vu"
 
-    if khu_pho_score >= 1:
-        item = "thong_tin_khu_pho"
-        if "bao nhieu" in q:
-            item = "tong_quan" if any(kw in q for kw in DS_KHU_PHO_KEYWORDS) else item
-        return "thong_tin_tong_quan", item
+    # if khu_pho_score >= 1:
+    #     item = "thong_tin_khu_pho"
+    #     if "bao nhieu" in q:
+    #         item = "tong_quan" if any(kw in q for kw in DS_KHU_PHO_KEYWORDS) else item
+    #     return "thong_tin_tong_quan", item
     
     if nhan_su_score >= 1:
         return "to_chuc_bo_may", "nhan_su"
 
-    # --- 3️⃣ Fallback ---
-    if tong_quan_info_score >= 1:
-        return "thong_tin_tong_quan", "tong_quan"
+    # # --- 3️⃣ Fallback ---
+    # if tong_quan_info_score >= 1:
+    #     return "thong_tin_tong_quan", "tong_quan"
 
     return None, None
