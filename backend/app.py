@@ -473,18 +473,18 @@ def chat_stream():
             subject = subject_llm or subject
 
 
-        # end = time.perf_counter()
-        # duration = (end - start) * 1000 
-        # log_data["tenant_name"]= 'xa_ba_diem'
-        # log_data["raw_query"] = origin_mess
-        # log_data["expanded_query"] = user_message
-        # log_data["answer"]= ""
-        # log_data["event_type"]= "normal"
-        # log_data["detected_category"]= category
-        # log_data["detected_subject"]= subject
-        # log_data["session_chat"]= session_id
-        # log_data["response_time_ms"]= round(duration / 1000,2)
-        # create_log(log_data)
+        end = time.perf_counter()
+        duration = (end - start) * 1000 
+        log_data["tenant_name"]= 'xa_ba_diem'
+        log_data["raw_query"] = origin_mess
+        log_data["expanded_query"] = user_message
+        log_data["answer"]= ""
+        log_data["event_type"]= "normal"
+        log_data["detected_category"]= category
+        log_data["detected_subject"]= subject
+        log_data["session_chat"]= session_id
+        log_data["response_time_ms"]= round(duration / 1000,2)
+        create_log(log_data)
 
         # response = supabase.rpc(
         #     "search_documents_full_hybrid_v6",
