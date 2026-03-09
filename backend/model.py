@@ -39,40 +39,60 @@ llm_generate = ChatOpenAI(
 )
 
 
-def detect_query(query: str) -> Dict:
+def detect_query(query: str, context) -> Dict:
+
     prompt = f"""
 Bạn là bộ phân loại nội dung cho chatbot hành chính cấp phường.
 
 NHIỆM VỤ:
-Chỉ phân loại câu hỏi thành một trong 3 loại sau:
+Phân loại câu hỏi của người dùng thành đúng 1 trong 4 loại sau:
 
-1. "complaint"
-   - Phản ánh dịch vụ hành chính
-   - Góp ý, khiếu nại, bức xúc
-   - Phàn nàn thái độ cán bộ
-   - Phản ánh chậm trễ, sai sót
-
-2. "banned"
+1. "banned"
    - Nội dung phản động
    - Xuyên tạc chính quyền
    - Kích động, chống đối nhà nước
    - Xúc phạm lãnh đạo, cán bộ
    - Nội dung vi phạm pháp luật
 
-3. "qa"
-   - Tất cả các câu hỏi còn lại
+2. "answerable"
+- Câu hỏi phù hợp với chatbot
+- Và tài liệu bên dưới đã đủ thông tin để trả lời trực tiếp
+
+3. "qa_need_info"
+- Câu hỏi phù hợp với chatbot
+- Nhưng còn thiếu thông tin quan trọng để xác định đúng đối tượng cần tra cứu
+- Và cần hỏi lại người dùng 1 ý ngắn gọn mới trả lời được
+Ví dụ:
+- "tôi muốn liên hệ với khu phố, thì gặp ai" → qa_need_info
+- "nộp hồ sơ thì mất bao lâu sẽ xử lý" → qa_need_info (vì còn thiếu thông tin thủ tục gì)
+- "anh Hiệp là ai" → chỉ là qa_need_info nếu tài liệu không đủ xác định anh Hiệp là ai
+
+4. "out_of_scope"
+- Câu hỏi không liên quan lĩnh vực chatbot hành chính cấp phường
+- Hoặc tài liệu bên dưới không đủ liên quan để trả lời
+- Và cũng không phải trường hợp chỉ cần hỏi thêm 1 thông tin ngắn là giải quyết được
 
 QUY TẮC:
-- Không giải thích.
-- Không thêm nội dung khác.
-- Chỉ trả về JSON đúng format.
+- Ưu tiên xét theo thứ tự:
+  1. banned
+  2. answerable
+  3. qa_need_info
+  4. out_of_scope
+- Chỉ chọn 1 nhãn
+- Không giải thích
+- Chỉ trả về JSON hợp lệ
+- Không dùng markdown, không dùng ```json
 
-Trả về:
+Trả về đúng format:
 {{
-  "intent": "complaint | banned | qa"
+  "intent": "banned | answerable | qa_need_info | out_of_scope"
 }}
 
-Câu hỏi: "{query}"
+Câu hỏi người dùng:
+"{query}"
+
+Tài liệu tìm được:
+{context}
 """
     try:
         response = llm.invoke(prompt)
@@ -181,7 +201,7 @@ Câu hỏi về cán bộ, chức danh, ai phụ trách, ai là chủ tịch, ph
 Thông tin chung: địa chỉ, khu phố, giờ làm việc, số điện thoại.
 
 4. phan_anh_kien_nghi
-Câu hỏi về phản ánh, kiến nghị, báo lỗi, báo vi phạm, than phiền, góp ý về các vấn đề đang xảy ra trong thực tế tại địa phương như hạ tầng, môi trường, giao thông, trật tự, đô thị.
+Câu hỏi dùng để phản ánh, báo sự cố, báo vi phạm, kiến nghị xử lý một vấn đề công cộng hoặc vi phạm đang xảy ra tại địa phương, cần cơ quan chức năng kiểm tra hoặc xử lý.
 
 5. tuong_tac (tương tác chung, không thuộc 4 category trên, ví dụ: "cảm ơn", "xin chào", "mày là chatbot à")
 ---
@@ -198,7 +218,7 @@ Nếu category = thu_tuc_hanh_chinh
 - dau_tu (chủ trương đầu tư, giấy chứng nhận đăng ký đầu tư, ưu đãi đầu tư, dự án đầu tư)
 - giao_duc_dao_tao (cơ sở giáo dục, hoạt động giáo dục, văn bằng, chứng chỉ, tuyển sinh, chuyển trường, học bổng)
 - lao_dong_viec_lam (hợp đồng lao động, tranh chấp lao động, an toàn lao động, việc làm, đào tạo nghề, lao động nước ngoài)
-- bao_hiem_an_sinh (BHXH, BHYT, hộ nghèo, trợ cấp xã hội, nhà ở xã hội)
+- bao_hiem_an_sinh (BHXH, BHYT, hộ nghèo, trợ cấp xã hội, nhà ở xã hội, người vô gia cư)
 - y_te (an toàn thực phẩm, trang thiết bị y tế, an toàn thực phẩm, dịch bệnh)
 - tai_nguyen_moi_truong (môi trường, tài nguyên nước, khoáng sản, biến đổi khí hậu, thiên tai)
 - cong_thuong (rượu, thuốc lá, điện lực, hóa chất, xúc tiến thương mại, quản lý thị trường, xuất nhập khẩu)
@@ -231,7 +251,6 @@ Nếu category = phan_anh_kien_nghi
 - do_thi (lấn chiếm vỉa hè, xây dựng trái phép, quảng cáo sai quy định, mỹ quan đô thị)
 - giao_thong (kẹt xe, đậu xe sai quy định, tai nạn, biển báo, tín hiệu giao thông, lấn chiếm lòng lề đường)
 - khieu_nai_to_cao (khiếu nại, tố cáo về cán bộ, dịch vụ công, tham nhũng, tiêu cực, vi phạm pháp luật)
-- he_thong (lỗi chatbot, thông tin sai, trải nghiệm người dùng, đề xuất cải thiện)
 
 ---
 
@@ -258,16 +277,11 @@ Câu hỏi:
     try:
         response = llm.invoke(prompt)
         raw = response.content.strip()
-        check = False
 
         data = json.loads(raw)
 
         category = data.get("category")
         subject = data.get("subject")
-
-        # Validate output
-        # if category in CATEGORIES and subject in SUBJECTS:
-        #     return category, subject
 
         print(category, subject)
 
@@ -635,7 +649,41 @@ Chỉ trả về câu hỏi cuối cùng. Không giải thích.
         return response.content.strip()
     except:
         return query
-    
+
+def llm_get_info(query: str) -> str:
+    prompt = f"""
+Bạn là chatbot hành chính cấp xã.
+
+Hãy xác định câu hỏi của người dùng có thiếu thông tin để trả lời hay không.
+
+- Nếu không thiếu thông tin:
+  trả về: "DU_THONG_TIN"
+- Nếu thiếu thông tin:
+  chỉ trả về đúng 1 câu hỏi ngắn để hỏi lại người dùng.
+- Không trả lời lan man.
+- Không thêm giải thích.
+- Không thêm ký hiệu đầu dòng.
+
+Ưu tiên hỏi thông tin còn thiếu quan trọng nhất:
+- khu phố số mấy
+- ấp nào
+- xã/phường nào
+- chức danh nào
+- bộ phận nào
+- thủ tục cụ thể nào
+
+Ví dụ:
+Người dùng: "tôi muốn liên hệ với khu phố, thì gặp ai"
+Kết quả: "Dạ hiện tại anh/chị đang ở khu phố số mấy ạ?"
+
+Người dùng: "tôi muốn làm giấy khai sinh"
+Kết quả: "Dạ anh/chị muốn đăng ký khai sinh mới hay đăng ký lại khai sinh ạ?"
+
+Người dùng: "{query}"
+Kết quả:
+"""
+    return prompt
+
 def llm_answer(question: str, context: str) -> str:
     prompt = f"""Bạn là chatbot hành chính cấp xã.
 

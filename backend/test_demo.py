@@ -474,7 +474,7 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
         confidence = 0.85
     
     elif is_phone_of_person(q_norm):
-        category = "thong_tin_tong_quan"
+        category = "to_chuc_bo_may"
         subject = "nhan_su"
         confidence = 0.9
         signals["person_phone"] = True

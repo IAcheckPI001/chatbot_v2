@@ -172,7 +172,7 @@ CONTACT_INFO_KEYWORDS = [
     "fanpage",
     "so dien thoai",
     # "dia chi",
-    "nam o dau",
+    # "nam o dau",
     "goi dien",
     "zalo",
 ]

@@ -1093,6 +1093,7 @@ function stopDrag() {
             <option value="thong_tin_tong_quan">thong_tin_tong_quan</option>
             <option value="to_chuc_bo_may">to_chuc_bo_may</option>
             <option value="thu_tuc_hanh_chinh">thu_tuc_hanh_chinh</option>
+            <option value="phan_anh_kien_nghi">phan_anh_kien_nghi</option>
           </select>
         </div>
         <div class="filter-group">
@@ -1121,15 +1122,27 @@ function stopDrag() {
           </select>
           <select v-if="categoryFilter == 'thong_tin_tong_quan'" v-model="subjectFilter" class="filter-select">
             <option value="">Tất cả</option>
-            <option value="thong_tin_khu_pho">thong_tin_khu_pho</option>
+            <option value="gioi_thieu_dia_phuong">gioi_thieu_dia_phuong</option>
+            <option value="lich_su_hanh_chinh">lich_su_hanh_chinh</option>
+            <option value="dia_ly">dia_ly</option>
+            <option value="thong_ke">thong_ke</option>
+            <option value="giao_thong">giao_thong</option>
             <option value="lich_lam_viec">lich_lam_viec</option>
-            <option value="thong_tin_lien_he">thong_tin_lien_he</option>
-            <option value="tong_quan">tong_quan</option>
+            <option value="thong_tin_lien_he">thong_tin_lien_he</option>  
           </select>
           <select v-if="categoryFilter == 'to_chuc_bo_may'" v-model="subjectFilter" class="filter-select">
             <option value="">Tất cả</option>
             <option value="nhan_su">nhan_su</option>
             <option value="chuc_vu">chuc_vu</option>
+          </select>
+          <select v-if="categoryFilter == 'phan_anh_kien_nghi'" v-model="subjectFilter" class="filter-select">
+            <option value="">Tất cả</option>
+            <option value="ha_tang">ha_tang</option>
+            <option value="moi_truong">moi_truong</option>
+            <option value="an_ninh_trat_tu">an_ninh_trat_tu</option>
+            <option value="do_thi">do_thi</option>
+            <option value="giao_thong">giao_thong</option>
+            <option value="khieu_nai_to_cao">khieu_nai_to_cao</option>
           </select>
         </div>
         <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''">Xóa bộ lọc</button>
@@ -1178,6 +1191,7 @@ function stopDrag() {
                     <option value="thong_tin_tong_quan">thong_tin_tong_quan</option>
                     <option value="to_chuc_bo_may">to_chuc_bo_may</option>
                     <option value="thu_tuc_hanh_chinh">thu_tuc_hanh_chinh</option>
+                    <option value="phan_anh_kien_nghi">phan_anh_kien_nghi</option>
                   </select>
                 </div>
                 <span v-else>{{ item.category || '-' }}</span>
@@ -1211,10 +1225,13 @@ function stopDrag() {
                     <div v-if="editingData.category === 'thong_tin_tong_quan'" class="edit-input-wrapper">
                       <select v-model="editingData.subject" class="edit-input edit-select">
                         <option value="">-- Chọn --</option>
-                        <option value="thong_tin_khu_pho">thong_tin_khu_pho</option>
+                        <option value="gioi_thieu_dia_phuong">gioi_thieu_dia_phuong</option>
+                        <option value="lich_su_hanh_chinh">lich_su_hanh_chinh</option>
+                        <option value="dia_ly">dia_ly</option>
+                        <option value="thong_ke">thong_ke</option>
+                        <option value="giao_thong">giao_thong</option>
                         <option value="lich_lam_viec">lich_lam_viec</option>
                         <option value="thong_tin_lien_he">thong_tin_lien_he</option>
-                        <option value="tong_quan">tong_quan</option>
                       </select>
                     </div>
                     <div v-if="editingData.category === 'to_chuc_bo_may'" class="edit-input-wrapper">
@@ -1222,6 +1239,17 @@ function stopDrag() {
                         <option value="">-- Chọn --</option>
                         <option value="nhan_su">nhan_su</option>
                         <option value="chuc_vu">chuc_vu</option>
+                      </select>
+                    </div>
+                    <div v-if="editingData.category === 'phan_anh_kien_nghi'" class="edit-input-wrapper">
+                      <select v-model="editingData.subject" class="edit-input edit-select">
+                        <option value="">-- Chọn --</option>
+                        <option value="ha_tang">ha_tang</option>
+                        <option value="moi_truong">moi_truong</option>
+                        <option value="an_ninh_trat_tu">an_ninh_trat_tu</option>
+                        <option value="do_thi">do_thi</option>
+                        <option value="giao_thong">giao_thong</option>
+                        <option value="khieu_nai_to_cao">khieu_nai_to_cao</option>
                       </select>
                     </div>
                 </div>
