@@ -19,7 +19,7 @@ const isDeleteModalOpen = ref(false)
 const isSaving = ref(false)
 const deleteTargetId = ref<string | null>(null)
 const chatBody = ref<HTMLElement | null>(null)
-const isLLMEnabled = ref(false) // mặc định bật
+const isLLMEnabled = ref(true) // mặc định bật
 const showSettings = ref(false)
 const settingsRef = ref<HTMLElement | null>(null)
 // const sessionId = crypto.randomUUID()
@@ -190,7 +190,7 @@ async function sendMessage() {
   responses.value = []
   
   // switch to test section to show data-table
-  activeSection.value = 'log'
+  activeSection.value = 'test'
   
   // call backend API
   loadingChat.value = true

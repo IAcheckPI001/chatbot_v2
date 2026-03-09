@@ -33,14 +33,13 @@ llm_rewrite = ChatOpenAI(
 )
 
 llm_generate = ChatOpenAI(
-    model_name="gpt-4o-mini",
+    model_name="gpt-4.1-nano",
     temperature=0.3,
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
 
 
-def detect_query(query: str, context) -> Dict:
-
+def detect_query(query: str, context: str) -> str:
     prompt = f"""
 Bạn là bộ phân loại nội dung cho chatbot hành chính cấp phường.
 
@@ -48,24 +47,28 @@ NHIỆM VỤ:
 Phân loại câu hỏi của người dùng thành đúng 1 trong 4 loại sau:
 
 1. "banned"
-   - Nội dung phản động
-   - Xuyên tạc chính quyền
-   - Kích động, chống đối nhà nước
-   - Xúc phạm lãnh đạo, cán bộ
-   - Nội dung vi phạm pháp luật
+- Nội dung phản động
+- Xuyên tạc chính quyền
+- Kích động, chống đối nhà nước
+- Xúc phạm lãnh đạo, cán bộ
+- Nội dung vi phạm pháp luật
 
 2. "answerable"
 - Câu hỏi phù hợp với chatbot
-- Và tài liệu bên dưới đã đủ thông tin để trả lời trực tiếp
+- Và tài liệu bên dưới đủ thông tin để trả lời trực tiếp hoặc trả lời theo điều kiện / phân nhánh hợp lý
+- Không bắt buộc phải xác định duy nhất 1 thủ tục nếu tài liệu đã đủ để hướng dẫn người dùng theo các trường hợp khác nhau
+- Nếu câu hỏi hỏi về một người cụ thể (ví dụ: "X là ai?") và tài liệu có đúng tên người đó kèm chức vụ, vai trò, đơn vị hoặc thông tin nhận diện rõ ràng, thì chọn "answerable"
 
 3. "qa_need_info"
-- Câu hỏi phù hợp với chatbot
-- Nhưng còn thiếu thông tin quan trọng để xác định đúng đối tượng cần tra cứu
-- Và cần hỏi lại người dùng 1 ý ngắn gọn mới trả lời được
+- Chỉ chọn nhãn này khi thiếu đúng một thông tin ngắn gọn và nếu không có thông tin đó thì không thể đưa ra câu trả lời hữu ích nào từ tài liệu hiện có
+- Nếu vẫn có thể trả lời theo hướng điều kiện, phân nhánh, hướng dẫn sơ bộ, hoặc tài liệu đã đủ xác định đúng người / đúng đối tượng, thì chọn "answerable" thay vì "qa_need_info"
+
 Ví dụ:
-- "tôi muốn liên hệ với khu phố, thì gặp ai" → qa_need_info
-- "nộp hồ sơ thì mất bao lâu sẽ xử lý" → qa_need_info (vì còn thiếu thông tin thủ tục gì)
-- "anh Hiệp là ai" → chỉ là qa_need_info nếu tài liệu không đủ xác định anh Hiệp là ai
+- "tôi muốn liên hệ với khu phố, thì gặp ai" -> qa_need_info
+- "nộp hồ sơ thì mất bao lâu sẽ xử lý" -> qa_need_info
+- "anh Hiệp là ai" -> chỉ là qa_need_info nếu tài liệu không đủ xác định anh Hiệp là ai
+- "Hoàng Phước Bi là ai?" + tài liệu có "Khu phố 9 - Trưởng khu phố: Hoàng Phước Bi" -> answerable
+- "mất giấy khai sinh thì làm sao?" + tài liệu có thông tin đủ để trả lời theo điều kiện -> answerable
 
 4. "out_of_scope"
 - Câu hỏi không liên quan lĩnh vực chatbot hành chính cấp phường
@@ -78,10 +81,13 @@ QUY TẮC:
   2. answerable
   3. qa_need_info
   4. out_of_scope
+- Nếu tài liệu đã đủ để nhận diện đúng người, đúng chức vụ, đúng đơn vị hoặc đúng trường hợp thì ưu tiên "answerable"
+- Không chọn "qa_need_info" chỉ vì tài liệu không đầy đủ mọi chi tiết, miễn là vẫn đủ để trả lời hữu ích
 - Chỉ chọn 1 nhãn
 - Không giải thích
 - Chỉ trả về JSON hợp lệ
-- Không dùng markdown, không dùng ```json
+- Không dùng markdown
+- Không dùng ```json
 
 Trả về đúng format:
 {{
@@ -98,7 +104,6 @@ Tài liệu tìm được:
         response = llm.invoke(prompt)
         raw = response.content
         data = json.loads(raw)
-
         return data.get("intent") or query
     except:
         return query
@@ -252,6 +257,12 @@ Nếu category = phan_anh_kien_nghi
 - giao_thong (kẹt xe, đậu xe sai quy định, tai nạn, biển báo, tín hiệu giao thông, lấn chiếm lòng lề đường)
 - khieu_nai_to_cao (khiếu nại, tố cáo về cán bộ, dịch vụ công, tham nhũng, tiêu cực, vi phạm pháp luật)
 
+
+Nếu category = tuong_tac
+
+- chao_hoi (các câu chào hỏi, tạm biệt, cảm ơn, xin lỗi, lịch sự xã giao)
+- phan_nan (các câu chửi thề, xúc phạm, khiêu khích, kích động, thù ghét, bạo lực)
+
 ---
 
 QUY TẮC
@@ -301,7 +312,7 @@ Câu hỏi:
             print(category, subject)
             return category, subject
         
-        if category == "tuong_tac":
+        if category == "tuong_tac" and subject in ["chao_hoi", "phan_nan"]:
             print(category, subject)
             return category, subject
 
@@ -685,17 +696,15 @@ Kết quả:
     return prompt
 
 def llm_answer(question: str, context: str) -> str:
-    prompt = f"""Bạn là chatbot hành chính cấp xã.
+    prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
 
-Chỉ được sử dụng thông tin trong tài liệu bên dưới để trả lời.
-Không được tự ý bổ sung quy định pháp luật ngoài tài liệu.
+Hãy trả lời chỉ dựa trên thông tin có trong tài liệu bên dưới.
+Không thêm quy định, thủ tục, thời hạn, lệ phí hoặc cơ quan xử lý nếu tài liệu không nêu.
 
-Nếu tài liệu có thông tin liên quan trực tiếp hoặc gián tiếp đến câu hỏi,
-hãy trả lời dựa trên nội dung đó.
-
-Nếu tài liệu hoàn toàn không liên quan đến câu hỏi,
-trả lời đúng nguyên văn:
-"Hiện chưa có thông tin trong hệ thống."
+Nếu tài liệu đủ thông tin, hãy trả lời trực tiếp bằng văn phong tự nhiên, rõ ràng.
+Nếu tài liệu chỉ khớp một phần nhưng vẫn có thể hướng dẫn người dùng, hãy trả lời theo hướng phù hợp nhất và nêu điều kiện ngắn gọn khi cần.
+Chỉ khi tài liệu hoàn toàn không liên quan mới trả lời đúng nguyên văn:
+Hiện chưa có thông tin trong hệ thống.
 
 === TÀI LIỆU ===
 {context}
@@ -704,10 +713,13 @@ trả lời đúng nguyên văn:
 {question}
 
 Yêu cầu:
-- Trả lời ngắn gọn, rõ ràng.
-- Không suy diễn ngoài tài liệu.
-- Nếu câu hỏi hỏi về việc kinh doanh mà tài liệu nói về đăng ký hộ kinh doanh,
-  hãy giải thích dựa trên thủ tục đó."""
+- Trả lời tự nhiên, thân thiện, không quá máy móc.
+- Ưu tiên trả lời thẳng vào ý người dùng hỏi.
+- Không cần luôn mở đầu bằng “Theo tài liệu”.
+- Chỉ nêu điều kiện khi thật sự cần để tránh hiểu sai.
+- Nếu tài liệu có nêu hồ sơ, nơi nộp, thời gian giải quyết thì có thể tóm tắt ngắn gọn.
+- Không bịa thêm thông tin ngoài tài liệu.
+"""
     try:
         response = llm_generate.invoke(prompt)
         return response.content.strip()

@@ -345,6 +345,49 @@ def detect_subject_v2(text_norm: str, prepared_keywords: Dict[str, List[Tuple[st
     return best_subject, confidence, subject_hits[best_subject]
 
 
+import re
+
+def detect_khu_pho_head_query(q_norm: str):
+    """
+    Trả về:
+    {
+      matched: bool,
+      canonical_role: str | None,
+      needs_role_correction: bool,
+      entity_name: str | None
+    }
+    """
+    # bắt "khu pho 29", "khu pho 1", ...
+    m = re.search(r"\bkhu pho\s+(\d+)\b", q_norm)
+    entity_name = f"khu pho {m.group(1)}" if m else None
+
+    has_khu_pho = entity_name is not None
+
+    asks_head = any(p in q_norm for p in [
+        "ai dung dau",
+        "nguoi dung dau",
+        "dung dau"
+    ])
+
+    asks_chu_tich = "chu tich" in q_norm
+
+    asks_truong_khu_pho = "truong khu pho" in q_norm
+
+    if has_khu_pho and (asks_head or asks_chu_tich or asks_truong_khu_pho):
+        return {
+            "matched": True,
+            "canonical_role": "truong_khu_pho",
+            "needs_role_correction": asks_chu_tich,
+            "entity_name": entity_name
+        }
+
+    return {
+        "matched": False,
+        "canonical_role": None,
+        "needs_role_correction": False,
+        "entity_name": entity_name
+    }
+
 # -------------------------
 # 5) classify_v2: trả category, subject, confidence, signals, intent, need_llm
 # -------------------------
@@ -407,6 +450,14 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
     subject = None
     confidence = 0.0
     need_llm = False
+
+    khu_pho_head_info = detect_khu_pho_head_query(q_norm)
+    if khu_pho_head_info["matched"]:
+        signals["khu_pho_head_query"] = {
+            "entity_name": khu_pho_head_info["entity_name"],
+            "canonical_role": khu_pho_head_info["canonical_role"],
+            "needs_role_correction": khu_pho_head_info["needs_role_correction"]
+        }
 
     # ✅ boost thủ tục nếu là combo (procedure intent + life event)
     weak_combo_boost = 0
@@ -484,6 +535,11 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
         category = "thong_tin_tong_quan"
         subject = "thong_tin_lien_he"
         confidence = 0.85
+
+    elif khu_pho_head_info["matched"]:
+        category = "to_chuc_bo_may"
+        subject = "nhan_su"   # hoặc "lanh_dao_khu_pho" nếu bạn có subject riêng
+        confidence = 0.92
 
     # 4) Chức vụ / Nhân sự
     elif chuc_vu_score >= 2:

@@ -1,5 +1,5 @@
 
-
+import re
 from utils import normalize_text
 
 
@@ -30,22 +30,40 @@ OPPOSITE_PAIRS = [
     ("ket_hon", "ly_hon")
 ]
 
+def contains_phrase(text, phrase):
+    return re.search(r"\b" + re.escape(phrase) + r"\b", text) is not None
 
+# def extract_modifiers(q_norm):
+#     matched = set()
+#     for key, phrases in MODIFIERS.items():
+#         for p in phrases:
+#             if p in q_norm:
+#                 matched.add(key)
+#     return matched
 
 def extract_modifiers(q_norm):
     matched = set()
     for key, phrases in MODIFIERS.items():
         for p in phrases:
-            if p in q_norm:
+            if contains_phrase(q_norm, p):
                 matched.add(key)
+                break
     return matched
 
+# def extract_core_tokens(q_norm):
+#     matched = set()
+#     for key, phrases in CORE_GROUPS.items():
+#         for p in phrases:
+#             if p in q_norm:
+#                 matched.add(key)
+#     return matched
 def extract_core_tokens(q_norm):
     matched = set()
     for key, phrases in CORE_GROUPS.items():
         for p in phrases:
-            if p in q_norm:
+            if contains_phrase(q_norm, p):
                 matched.add(key)
+                break
     return matched
 
 def semantic_guard_adjust(query_cores, query_mods, doc_text_norm):
@@ -54,17 +72,26 @@ def semantic_guard_adjust(query_cores, query_mods, doc_text_norm):
     # -----------------------------
     # 1️⃣ HARD CORE FILTER
     # -----------------------------
+    # if query_cores:
+    #     doc_has_core = False
+
+    #     for core in query_cores:
+    #         if any(p in doc_text_norm for p in CORE_GROUPS[core]):
+    #             doc_has_core = True
+    #             break
+
+    #     # Nếu doc không chứa core phù hợp → loại mạnh
+    #     if not doc_has_core:
+    #         return -5.0
+
     if query_cores:
-        doc_has_core = False
-
-        for core in query_cores:
-            if any(p in doc_text_norm for p in CORE_GROUPS[core]):
-                doc_has_core = True
-                break
-
-        # Nếu doc không chứa core phù hợp → loại mạnh
+        doc_has_core = any(
+            contains_phrase(doc_text_norm, phrase)
+            for core in query_cores
+            for phrase in CORE_GROUPS[core]
+        )
         if not doc_has_core:
-            return -5.0
+            return -1.5
 
     # -----------------------------
     # 2️⃣ CORE BOOST
@@ -104,6 +131,18 @@ def semantic_guard_adjust(query_cores, query_mods, doc_text_norm):
     return adjust
 
 
+# def apply_semantic_guard(q_norm, results):
+#     query_cores = extract_core_tokens(q_norm)
+#     query_mods = extract_modifiers(q_norm)
+
+#     for r in results:
+#         doc_norm = normalize_text(r["text_content"])
+#         adjust = semantic_guard_adjust(query_cores, query_mods, doc_norm)
+#         r["confidence_score"] += adjust
+
+#     results.sort(key=lambda x: x["confidence_score"], reverse=True)
+#     return results
+
 def apply_semantic_guard(q_norm, results):
     query_cores = extract_core_tokens(q_norm)
     query_mods = extract_modifiers(q_norm)
@@ -111,7 +150,8 @@ def apply_semantic_guard(q_norm, results):
     for r in results:
         doc_norm = normalize_text(r["text_content"])
         adjust = semantic_guard_adjust(query_cores, query_mods, doc_norm)
-        r["confidence_score"] += adjust
+        r["semantic_adjust"] = adjust
+        r["final_score"] = r["confidence_score"] + adjust
 
-    results.sort(key=lambda x: x["confidence_score"], reverse=True)
+    results.sort(key=lambda x: x["final_score"], reverse=True)
     return results
