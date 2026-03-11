@@ -226,17 +226,22 @@ QUERY: {user_query}
 def export_metadata_filter_chunk(category, query):
     meta = classify_llm(query)
 
+    if not meta or not isinstance(meta, dict):
+        return []
+
     query_mode = meta.get("query_mode")
     print(f"Query mode: {query_mode}")
 
-    procedures = meta["unit"]
+    procedures = meta.get("unit") or []
+    if not procedures:
+        return []
 
     chunk_response = []
 
     if query_mode == "single_procedure":
         print(f"Thủ tục chính: {procedures[0]['procedure']} - {procedures[0]['subject']}") 
-        procedure_action = procedures[0]["procedure_action"]
-        special_contexts = procedures[0]["special_contexts"]
+        procedure_action = procedures[0].get("procedure_action")
+        special_contexts = procedures[0].get("special_contexts") or []
         response = supabase.rpc(
             "search_documents_full_hybrid_v7",
             {
@@ -254,7 +259,7 @@ def export_metadata_filter_chunk(category, query):
 
 
         chunks = response.data or []
-        chunk_response = chunks[0] if chunks else []
+        chunk_response = chunks
         print(f"Tìm thấy {len(chunk_response)} đoạn văn bản liên quan:")
         print(chunk_response[0]) if chunk_response else print("Không tìm thấy đoạn văn bản nào liên quan.") 
     else:
@@ -280,8 +285,9 @@ def export_metadata_filter_chunk(category, query):
 
             chunks = response.data or []
 
-            chunk_response.append(chunks[0]) if chunks else chunk_response.append(None)
-            print(chunks[0]) if chunks else print("Không tìm thấy đoạn văn bản nào liên quan.")
+            if chunks:
+                chunk_response.append(chunks[0])
+            print(chunk_response[0]) if chunk_response else print("Không tìm thấy đoạn văn bản nào liên quan.")
         
     return chunk_response
 
