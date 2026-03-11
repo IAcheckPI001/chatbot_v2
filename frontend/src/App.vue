@@ -16,6 +16,7 @@ const isCreateChunkModalOpen = ref(false)
 const chunkSearch = ref('')
 const showChunkDropdown = ref(false)
 const isDeleteModalOpen = ref(false)
+const isDeleteModalOpenChunk = ref(false)
 const isSaving = ref(false)
 const deleteTargetId = ref<string | null>(null)
 const chatBody = ref<HTMLElement | null>(null)
@@ -128,9 +129,15 @@ function openDeleteModal(id: string) {
   isDeleteModalOpen.value = true
 }
 
+function openDeleteModalChunk(id: string) {
+  deleteTargetId.value = id
+  isDeleteModalOpenChunk.value = true
+}
+
 function closeDeleteModal() {
   deleteTargetId.value = null
   isDeleteModalOpen.value = false
+  isDeleteModalOpenChunk.value = false
 }
 
 const filteredChunksForSelect = computed(() => {
@@ -501,6 +508,36 @@ async function confirmDeleteAlias() {
     isSaving.value = false
   }
 }
+
+
+async function confirmDeleteChunk() {
+  if (!deleteTargetId.value) return
+
+  isSaving.value = true
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/delete-chunk/${deleteTargetId.value}`,
+      { method: 'DELETE' }
+    )
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`)
+    }
+
+    chunksData.value = chunksData.value.filter(
+      item => item.id !== deleteTargetId.value
+    )
+
+    closeDeleteModal()
+
+  } catch (error: any) {
+    apiError.value = error.message
+  } finally {
+    isSaving.value = false
+  }
+}
+
 
 async function saveEditAlias() {
   if (!editingData.value) return
@@ -1161,6 +1198,8 @@ function stopDrag() {
               </th>
               <th class="col-index">Category</th>
               <th class="col-index">Subject</th>
+              <th class="col-index">procedure_action</th>
+              <th class="col-index">special_contexts</th>
               <!-- <th class="col-index">Keywords</th> -->
               <th class="col-index">Actions</th>
             </tr>
@@ -1255,6 +1294,58 @@ function stopDrag() {
                 </div>
                 <span v-else>{{ item.subject || '-' }}</span>
               </td>
+              <td class="col-index">
+                <div v-if="editingId === item.id" class="edit-input-wrapper">
+                  <select v-model="editingData.procedure_action" class="edit-input edit-select">
+                    <option value="">-- Chọn --</option>
+                    <option value="dang_ky_lai">dang_ky_lai</option>
+                    <option value="cap_lai">cap_lai</option>
+                    <option value="cap_ban_sao">cap_ban_sao</option>
+                    <option value="cap_phep">cap_phep</option>
+                    <option value="thay_doi">thay_doi</option>
+                    <option value="cai_chinh">cai_chinh</option>
+                    <option value="bo_sung">bo_sung</option>
+                    <option value="xac_nhan">xac_nhan</option>
+                    <option value="ghi_vao_so">ghi_vao_so</option>
+                    <option value="giai_quyet">giai_quyet</option>
+                    <option value="thong_bao">thong_bao</option>
+                    <option value="ho_tro">ho_tro</option>
+                    <option value="tro_cap">tro_cap</option>
+                    <option value="cham_dut">cham_dut</option>
+                    <option value="tam_ngung">tam_ngung</option>
+                    <option value="tiep_tuc">tiep_tuc</option>
+                    <option value="chap_thuan">chap_thuan</option>
+                    <option value="cong_bo_lai">cong_bo_lai</option>
+                    <option value="cong_bo">cong_bo</option>
+                    <option value="cong_nhan">chuyen_truong</option>
+                    <option value="thanh_toan">tuyen_sinh</option>
+                    <option value="thong_bao">xet_tuyen</option>
+                    <option value="ho_tro">xet_cap</option>
+                    <option value="tro_cap">phe_duyet</option>
+                    <option value="cham_dut">can_thiep</option>
+                    <option value="tam_ngung">thu_hoi</option>
+                    <option value="tiep_tuc">giao</option>
+                    <option value="chap_thuan">huy_bo</option>
+                    <option value="cong_bo_lai">cam_tiep_xuc</option>
+                  </select>
+                </div>
+                <span v-else>{{ item.procedure_action || '-' }}</span>
+              </td>
+              <td class="col-index">
+                <div v-if="editingId === item.id" class="edit-input-wrapper">
+                  <select v-model="editingData.special_contexts" class="edit-input edit-select">
+                    <option value="">-- Chọn --</option>
+                    <option value="yeu_to_nuoc_ngoai">yeu_to_nuoc_ngoai</option>
+                    <option value="khu_vuc_bien_gioi">khu_vuc_bien_gioi</option>
+                    <option value="da_co_ho_so_giay_to_ca_nhan">da_co_ho_so_giay_to_ca_nhan</option>
+                    <option value="uy_quyen">uy_quyen</option>
+                    <option value="chon_quoc_tich">chon_quoc_tich</option>
+                    <option value="qua_han_dang_ky">qua_han_dang_ky</option>
+                    <option value="mat_so_ho_tich_va_ban_chinh">mat_so_ho_tich_va_ban_chinh</option>
+                  </select>
+                </div>
+                <span v-else>{{ item.special_contexts || '-' }}</span>
+              </td>
               <td class="col-index action-cell">
                 <div v-if="editingId === item.id" class="action-buttons">
                   <button class="btn-save" @click="saveEditChunk()" :disabled="isSaving">💾</button>
@@ -1262,6 +1353,9 @@ function stopDrag() {
                 </div>
                 <div v-else class="action-buttons">
                   <button class="btn-edit" @click="startEdit(item)">✏️</button>
+                  <button class="btn-edit" @click="openDeleteModalChunk(item.id)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2 lucide-trash-2 w-4 h-4"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line></svg>
+                  </button>
                 </div>
               </td>
             </tr>
@@ -1462,6 +1556,33 @@ function stopDrag() {
           <button 
             class="btn-delete-confirm" 
             @click="confirmDeleteAlias"
+            :disabled="isSaving"
+          >
+            🗑️ Xóa
+          </button>
+
+          <button 
+            class="btn-cancel" 
+            @click="closeDeleteModal"
+          >
+            Hủy
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Delete Confirm Modal -->
+    <div v-if="isDeleteModalOpen" class="modal-overlay">
+      <div class="modal-box">
+
+        <h3>Xác nhận xóa</h3>
+        <p style="font-size: 1.1em;">Bạn có chắc chắn muốn xóa chunk này?</p>
+
+        <div class="modal-actions">
+          <button 
+            class="btn-delete-confirm" 
+            @click="confirmDeleteChunk"
             :disabled="isSaving"
           >
             🗑️ Xóa
