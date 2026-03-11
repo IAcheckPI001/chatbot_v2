@@ -1,6 +1,7 @@
-
 import uuid
 import time
+import hashlib
+from threading import Lock
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
@@ -15,9 +16,9 @@ from normalize import SINGLE_TOKEN_MAP, CONTEXT_RULES, BANNED_KEYWORDS, normaliz
 from model import rewrite_query, detect_query, llm_answer, classify_llm
 from test_demo import classify_v2
 from system import apply_semantic_guard
-from embedding import get_embedding
+from embedding import get_proc_embedding, get_embedding
 from utils import SUBJECT_KEYWORDS, GENERAL_INFO_SUBJECT_KEYWORDS, classify, prepare_subject_keywords
-
+from export_metadata import export_metadata_filter_chunk
 
 PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
 
@@ -31,6 +32,117 @@ client = OpenAI(
 )
 
 resolver = AbbreviationResolver(SINGLE_TOKEN_MAP, CONTEXT_RULES)
+
+# Lightweight in-memory TTL cache to reduce duplicate LLM/embedding/RPC calls.
+_cache_lock = Lock()
+_embedding_cache = {}
+_classify_llm_cache = {}
+_detect_query_cache = {}
+_search_v6_cache = {}
+_related_chunks_cache = {}
+
+EMBEDDING_CACHE_TTL = 30 * 60
+LLM_CLASSIFY_CACHE_TTL = 10 * 60
+DETECT_QUERY_CACHE_TTL = 5 * 60
+SEARCH_V6_CACHE_TTL = 60
+RELATED_CHUNKS_CACHE_TTL = 120
+
+EMBEDDING_CACHE_MAX = 2000
+LLM_CLASSIFY_CACHE_MAX = 1000
+DETECT_QUERY_CACHE_MAX = 500
+SEARCH_V6_CACHE_MAX = 1500
+RELATED_CHUNKS_CACHE_MAX = 2000
+
+
+def _cache_get(cache, key):
+    now = time.time()
+    with _cache_lock:
+        item = cache.get(key)
+        if not item:
+            return None
+        expire_at, value = item
+        if expire_at < now:
+            cache.pop(key, None)
+            return None
+        return value
+
+
+def _cache_set(cache, key, value, ttl_seconds, max_items):
+    now = time.time()
+    expire_at = now + ttl_seconds
+    with _cache_lock:
+        # Lazy cleanup of expired entries.
+        expired = [k for k, (exp, _) in cache.items() if exp < now]
+        for k in expired:
+            cache.pop(k, None)
+
+        # Simple size guard: remove oldest-by-expiry key when full.
+        if len(cache) >= max_items:
+            oldest_key = min(cache, key=lambda k: cache[k][0])
+            cache.pop(oldest_key, None)
+
+        cache[key] = (expire_at, value)
+
+
+def _clone_rows(rows):
+    return [dict(r) for r in (rows or [])]
+
+
+def get_embedding_cached(user_text: str):
+    key = normalize_text(user_text or "")
+    cached = _cache_get(_embedding_cache, key)
+    if cached is not None:
+        return cached
+
+    emb = get_embedding(user_text)
+    _cache_set(_embedding_cache, key, emb, EMBEDDING_CACHE_TTL, EMBEDDING_CACHE_MAX)
+    return emb
+
+
+def classify_llm_cached(user_text: str):
+    key = normalize_text(user_text or "")
+    cached = _cache_get(_classify_llm_cache, key)
+    if cached is not None:
+        return cached
+
+    value = classify_llm(user_text)
+    _cache_set(_classify_llm_cache, key, value, LLM_CLASSIFY_CACHE_TTL, LLM_CLASSIFY_CACHE_MAX)
+    return value
+
+
+def detect_query_cached(user_text: str, context: str):
+    context_hash = hashlib.sha1((context or "").encode("utf-8")).hexdigest()
+    key = (normalize_text(user_text or ""), context_hash)
+    cached = _cache_get(_detect_query_cache, key)
+    if cached is not None:
+        return cached
+
+    value = detect_query(user_text, context)
+    _cache_set(_detect_query_cache, key, value, DETECT_QUERY_CACHE_TTL, DETECT_QUERY_CACHE_MAX)
+    return value
+
+
+def search_documents_full_hybrid_v6_cached(normalized_query, query_embedding, category, subject, p_limit=5, tenant="xa_ba_diem"):
+    key = (tenant, normalized_query, category, subject, p_limit)
+    cached = _cache_get(_search_v6_cache, key)
+    if cached is not None:
+        return _clone_rows(cached)
+
+    response = supabase.rpc(
+        "search_documents_full_hybrid_v6",
+        {
+            "p_query_format": normalized_query,
+            "p_query_embedding": query_embedding,
+            "p_tenant": tenant,
+            "p_category": category,
+            "p_subject": subject,
+            "p_limit": p_limit
+        }
+    ).execute()
+
+    rows = response.data or []
+    _cache_set(_search_v6_cache, key, _clone_rows(rows), SEARCH_V6_CACHE_TTL, SEARCH_V6_CACHE_MAX)
+    return rows
 
 @app.route('/api/get-chunks', methods=['GET'])
 def get_chunks():
@@ -177,7 +289,7 @@ def create_chunk():
             "normalized_text": normalize_text(data.get("procedure_name")) if data.get("procedure_name") else normalize_text(data.get("text_content")),
             "category": data.get("category") or None,
             "subject": data.get("subject") or None,
-            "embedding": get_embedding(data.get("text_content")) if data.get("text_content") else None
+            "embedding": get_proc_embedding(data.get("text_content")) if data.get("text_content") else None
         }
 
         response = supabase.table("documents") \
@@ -275,7 +387,7 @@ def update_chunk(chunk_id):
                 "normalized_text": normalize_text(text_content),
                 "category": data.get("category") or None,
                 "subject": data.get("subject") or None,
-                "embedding": get_embedding(text_content)
+                "embedding": get_proc_embedding(text_content)
             }) \
             .eq("id", chunk_id) \
             .execute()
@@ -382,6 +494,17 @@ def get_related_chunks(supabase, tenant_name: str, source_chunk_id: str):
     return doc_res.data or []
 
 
+def get_related_chunks_cached(tenant_name: str, source_chunk_id: str):
+    key = (tenant_name, source_chunk_id)
+    cached = _cache_get(_related_chunks_cache, key)
+    if cached is not None:
+        return _clone_rows(cached)
+
+    rows = get_related_chunks(supabase, tenant_name, source_chunk_id)
+    _cache_set(_related_chunks_cache, key, _clone_rows(rows), RELATED_CHUNKS_CACHE_TTL, RELATED_CHUNKS_CACHE_MAX)
+    return rows
+
+
 def normalize_llm_label(value):
     if value is None:
         return None
@@ -449,7 +572,7 @@ def chat_stream():
         session_history = (
             supabase
             .table("log_query")
-            .select("expanded_query, answer")
+            .select("expanded_query")
             .eq("session_chat", session_id)
             .eq("event_type", "normal")
             .order("created_at", desc=True)
@@ -457,7 +580,7 @@ def chat_stream():
             .execute()
         )
 
-        history_data = session_history.data
+        history_data = session_history.data or []
 
         re_check = False
 
@@ -499,8 +622,6 @@ def chat_stream():
             yield f"data: {json.dumps({'log': f'[Blocked] Query: {user_message} => keyword: {matched_keyword}'})}\n\n"
             yield f"data: {json.dumps({'replies': out_of_score_content, 'chunks': []})}\n\n"
             return 
-
-        query_embedding = get_embedding(user_message)
 
         print(history_data)
 
@@ -556,7 +677,7 @@ def chat_stream():
         if res["need_llm"]:
             re_check = True
             yield f"data: {json.dumps({'log': f'Bắt đầu sử dụng LLM để trích xuất'})}\n\n"
-            category_llm, subject_llm = classify_llm(user_message)
+            category_llm, subject_llm = classify_llm_cached(user_message)
             yield f"data: {json.dumps({'log': f'LLM classify => Category: {category_llm}, Subject: {subject_llm}'})}\n\n"
 
             category_llm_clean = normalize_llm_label(category_llm)
@@ -621,39 +742,30 @@ def chat_stream():
         # log_data["response_time_ms"]= round(duration / 1000,2)
         # create_log(log_data)
 
-        response = supabase.rpc(
-            "search_documents_full_hybrid_v6",
-            {
-                "p_query_format": normalized_query,
-                "p_query_embedding": query_embedding,
-                "p_tenant": "xa_ba_diem",
-                "p_category": category,
-                "p_subject": subject,
-                "p_limit": 5
-            }
-        ).execute()
+        query_embedding = get_embedding_cached(user_message)
 
-
-        chunks = response.data or []
+        chunks = search_documents_full_hybrid_v6_cached(
+            normalized_query=normalized_query,
+            query_embedding=query_embedding,
+            category=category,
+            subject=subject,
+            p_limit=5,
+            tenant="xa_ba_diem"
+        )
         
 
         if re_check or subject in ["chuc_vu", "nhan_su"]:
             yield f"data: {json.dumps({'log': f'Kiểm tra nội dung subject là None'})}\n\n"
             best_score = chunks[0]["confidence_score"] if chunks else 0
             if best_score < 0.4:
-                response_all = supabase.rpc(
-                    "search_documents_full_hybrid_v6",
-                    {
-                        "p_query_format": normalized_query,
-                        "p_query_embedding": query_embedding,
-                        "p_tenant": "xa_ba_diem",
-                        "p_category": category,
-                        "p_subject": None,
-                        "p_limit": 5
-                    }
-                ).execute()
-
-                chunks_all = response_all.data or []
+                chunks_all = search_documents_full_hybrid_v6_cached(
+                    normalized_query=normalized_query,
+                    query_embedding=query_embedding,
+                    category=category,
+                    subject=None,
+                    p_limit=5,
+                    tenant="xa_ba_diem"
+                )
 
                 print(chunks_all[0])
                 best_score_all = chunks_all[0]["confidence_score"] if chunks_all else 0
@@ -662,28 +774,28 @@ def chat_stream():
                 if best_score_all > best_score:
                     chunks = chunks_all
                     
-        if subject == "thong_tin_lien_he":
-            score = chunks[0]["confidence_score"]
-            if score < 0.45:
-                # subject = "lanh_dao"
-                response = supabase.rpc(
-                    "search_documents_full_hybrid_v6",
-                    {
-                        "p_query_format": normalized_query,
-                        "p_query_embedding": query_embedding,
-                        "p_tenant": "xa_ba_diem",
-                        "p_category": "to_chuc_bo_may",
-                        "p_subject": None,
-                        "p_limit": 5
-                    }
-                ).execute()
-                chunks_temp = response.data
+        # if subject == "thong_tin_lien_he":
+        #     score = chunks[0]["confidence_score"]
+        #     if score < 0.45:
+        #         # subject = "lanh_dao"
+        #         response = supabase.rpc(
+        #             "search_documents_full_hybrid_v6",
+        #             {
+        #                 "p_query_format": normalized_query,
+        #                 "p_query_embedding": query_embedding,
+        #                 "p_tenant": "xa_ba_diem",
+        #                 "p_category": "to_chuc_bo_may",
+        #                 "p_subject": None,
+        #                 "p_limit": 5
+        #             }
+        #         ).execute()
+        #         chunks_temp = response.data
 
-                if not chunks_temp:
-                    return
-                score_temp = chunks_temp[0]["confidence_score"]
-                if score_temp > score:
-                    chunks = chunks_temp
+        #         if not chunks_temp:
+        #             return
+        #         score_temp = chunks_temp[0]["confidence_score"]
+        #         if score_temp > score:
+        #             chunks = chunks_temp
         
         context = "\n\n".join(
             f"### Tài liệu {i+1}\n{chunk['text_content']}"
@@ -691,8 +803,12 @@ def chat_stream():
         )
 
         if category == "thu_tuc_hanh_chinh":
-            chunks = apply_semantic_guard(normalized_query ,chunks)[:5]
-            context = f"### Tài liệu\n{chunks[0]['text_content'] if chunks else ''}"
+            chunks = export_metadata_filter_chunk(category, user_message)
+        #     chunks = apply_semantic_guard(normalized_query ,chunks)[:5]
+            context = "\n\n".join(
+                f"### Tài liệu {i+1}\n{chunk['text_content']}"
+                for i, chunk in enumerate(chunks[:5])
+            )
         
         print(context)
         
@@ -755,7 +871,7 @@ def chat_stream():
             yield f"data: {json.dumps({'log': f'Sử dụng LLM kiểm tra phạm vi câu hỏi: {user_message}'})}\n\n"
             # print(f"Related chunks: {related_chunks}")
             id_chunk = chunks[0]["id"] if chunks else None
-            related_chunks = get_related_chunks(supabase, "xa_ba_diem", id_chunk)
+            related_chunks = get_related_chunks_cached("xa_ba_diem", id_chunk)
 
             if related_chunks:
                 related_context = "\n\n".join(
@@ -767,7 +883,7 @@ def chat_stream():
 
             print(f"Context after adding related chunks: {context}")
             
-            flow_query = detect_query(user_message, context)
+            flow_query = detect_query_cached(user_message, context)
             if flow_query in ["banned", "answerable", "qa_need_info", "out_of_scope"]:
                 if flow_query == "answerable":
 

@@ -31,12 +31,12 @@ Từ câu hỏi của người dùng, trả về DUY NHẤT 1 JSON object hợp 
   "query_mode": "single_procedure" | "multi_procedure",
   "unit": [
     {{
-      "procedure": "tên thủ tục hành chính",
-      "subject": chọn 1 trong DANH SÁCH subject hợp lệ
+      "procedure": "tên thủ tục chính đã được chuẩn hóa, ngắn gọn, ổn định; ưu tiên dùng cách gọi gần với tên thủ tục hành chính hơn là cách nói tự nhiên của người dân",
+      "subject": chọn 1 trong DANH SÁCH subject hợp lệ,
+      "procedure_action": "gia_tri_hop_le" | null,
+      "special_contexts": []
     }}
-  ],
-  "procedure_action": "gia_tri_hop_le" | null,
-  "special_contexts": []
+  ]
 }}
 
 QUY TẮC BẮT BUỘC
@@ -134,7 +134,7 @@ DANH SÁCH subject HỢP LỆ
 - xay_dung_nha_o
 - dau_tu
 - giao_duc_dao_tao
-- lao_dong_viec_lam
+- lao_dong_viec_lam (hợp đồng lao động, an toàn lao động, bảo hộ lao động, hòa giải viên)
 - bao_hiem_an_sinh (BHXH, BHYT, hộ nghèo, trợ cấp xã hội, nhà ở xã hội, người vô gia cư, mai táng phí)
 - y_te (an toàn thực phẩm, trang thiết bị y tế, an toàn thực phẩm, dịch bệnh)
 - tai_nguyen_moi_truong
@@ -153,13 +153,61 @@ Câu hỏi: "Mất giấy khai sinh có đăng ký kết hôn được không"
     "unit": [
         {{
             'procedure': 'đăng ký kết hôn',
-            'subject': 'tu_phap_ho_tich'
+            'subject': 'tu_phap_ho_tich',
+            'procedure_action': 'dang_ky_moi',
+            'special_contexts': []
+        }}
+        ,{{
+            'procedure': 'đăng ký lại khai sinh',
+            'subject': 'tu_phap_ho_tich',
+            'procedure_action': 'dang_ky_lai',
+            'special_contexts': []
         }}
     ]
-    'procedure_action': 'dang_ky_moi',
-    'special_contexts': []
 }}
 
+Câu hỏi: "mở quán rượu cần những giấy tờ gì"
+{{
+    "query_mode": "single_procedure",
+    "unit": [
+        {{
+            'procedure': 'đăng ký giấy phép mở quán rượu',
+            'subject': 'cong_thuong',
+            'procedure_action': 'dang_ky_moi',
+            'special_contexts': []
+        }}
+    ]
+}}
+
+Câu hỏi: "con tôi 6 tuổi vào lớp 1 thì hồ sơ thế nào?"
+{{
+  "query_mode": "single_procedure",
+  "unit": [
+    {{
+      "procedure": "đăng ký tuyển sinh lớp 1",
+      "subject": "giao_duc_dao_tao",
+      "procedure_action": "tuyen_sinh",
+      "special_contexts": []
+    }}
+  ],
+}}
+
+{{
+    'query_mode': 'multi_procedure', 
+    'unit': [
+        {{
+            'procedure': 'đăng ký khai sinh', 
+            'subject': 'tu_phap_ho_tich',
+            'procedure_action': 'dang_ky_moi', 
+            'special_contexts': []
+        }}, 
+        {{
+            'procedure': 'đăng ký khai sinh có yếu tố nước ngoài', 
+            'subject': 'tu_phap_ho_tich',
+            'procedure_action': 'dang_ky_moi', 
+            'special_contexts': ['yeu_to_nuoc_ngoai']
+        }}], 
+}}
 QUERY: {user_query}
 """
     try:
@@ -175,76 +223,169 @@ QUERY: {user_query}
         print("LLM classify error:", e)
         return None
 
+def export_metadata_filter_chunk(category, query):
+    meta = classify_llm(query)
+
+    query_mode = meta.get("query_mode")
+    print(f"Query mode: {query_mode}")
+
+    procedures = meta["unit"]
+
+    chunk_response = []
+
+    if query_mode == "single_procedure":
+        print(f"Thủ tục chính: {procedures[0]['procedure']} - {procedures[0]['subject']}") 
+        procedure_action = procedures[0]["procedure_action"]
+        special_contexts = procedures[0]["special_contexts"]
+        response = supabase.rpc(
+            "search_documents_full_hybrid_v7",
+            {
+                "p_query_format": normalize_text(query),
+                "p_query_embedding": get_embedding(procedures[0]['procedure']),
+                "p_tenant": "xa_ba_diem",
+                "p_category": category,
+                "p_subject": procedures[0]['subject'],
+                "p_procedure": normalize_text(procedures[0]['procedure']),
+                "p_procedure_action": procedure_action,
+                "p_special_contexts": special_contexts,
+                "p_limit": 5
+            }
+        ).execute()
 
 
-if __name__ == "__main__":
-    TEST_BAO_HIEM_AN_SINH = [
-        # "dăng ký khai sinh",
-        # "con toi 6 tuổi vào lớp 1 thì hồ sơ thế nào?",
-        # "Đậu và Khoai Tây là 2 người đồng tính muốn kết hôn thì cần giấy tờ gì",
-        # "Mất giấy khai sinh có đăng ký kết hôn được không",
-        # "Thủ tục thôi làm hòa giải viên cấp phường",
-        # "con tôi vào lớp 1 thì đăng ký nộp hồ sơ ở đâu",
-        "con tôi người nước ngoài thì làm khai sinh làm sao",
-        "con tôi người nước ngoài tại biên giới thì làm khai sinh làm sao",
-        # "mở quán rượu cần những giấy tờ gì"
-    ]
-    for query in TEST_BAO_HIEM_AN_SINH:
-        meta = classify_llm(query)
+        chunks = response.data or []
+        chunk_response = chunks[0] if chunks else []
+        print(f"Tìm thấy {len(chunk_response)} đoạn văn bản liên quan:")
+        print(chunk_response[0]) if chunk_response else print("Không tìm thấy đoạn văn bản nào liên quan.") 
+    else:
+        print("Các thủ tục chính:")
+        for proc in procedures:
+            print(f"Thủ tục chính: {proc['procedure']} - {proc['subject']}")
 
-        query_mode = meta.get("query_mode")
-        print(f"Query mode: {query_mode}")
-
-        procedures = meta["unit"]
-        procedure_action = meta["procedure_action"]
-        special_contexts = meta["special_contexts"]
-
-        normalized_query = normalize_text(query)
-
-        res = classify_v2(normalized_query, PREPARED)
-        category, subject = res["category"], res["subject"]
-
-        print(f"Phân loại chủ đề: {category} - {subject}")
-
-        if query_mode == "single_procedure":
-            print(f"Thủ tục chính: {procedures[0]['procedure']} - {procedures[0]['subject']}")
             response = supabase.rpc(
-                "search_documents_full_hybrid_v6_have_meta",
+                "search_documents_full_hybrid_v7",
                 {
-                    "p_query_format": normalized_query,
-                    "p_query_embedding": get_embedding(procedures[0]['procedure']),
+                    "p_query_format": normalize_text(proc['procedure']),
+                    "p_query_embedding": get_embedding(proc['procedure']),
                     "p_tenant": "xa_ba_diem",
                     "p_category": category,
-                    "p_subject": procedures[0]['subject'],
-                    "p_procedure_action": procedure_action,
-                    "p_special_contexts": special_contexts,
+                    "p_subject": proc['subject'],
+                    "p_procedure": normalize_text(proc['procedure']),
+                    "p_procedure_action": proc['procedure_action'],
+                    "p_special_contexts": proc['special_contexts'],
                     "p_limit": 5
                 }
             ).execute()
 
 
             chunks = response.data or []
-            print(f"Tìm thấy {len(chunks)} đoạn văn bản liên quan:")
-            print(chunks[0])
-        else:
-            print("Các thủ tục chính:")
-            for proc in procedures:
-                print(f"Thủ tục chính: {proc['procedure']} - {proc['subject']}")
 
-                response = supabase.rpc(
-                    "search_documents_full_hybrid_v6_have_meta",
-                    {
-                        "p_query_format": normalize_text(proc['procedure']),
-                        "p_query_embedding": get_embedding(proc['procedure']),
-                        "p_tenant": "xa_ba_diem",
-                        "p_category": category,
-                        "p_subject": proc['subject'],
-                        "p_procedure_action": procedure_action,
-                        "p_special_contexts": special_contexts,
-                        "p_limit": 5
-                    }
-                ).execute()
+            chunk_response.append(chunks[0]) if chunks else chunk_response.append(None)
+            print(chunks[0]) if chunks else print("Không tìm thấy đoạn văn bản nào liên quan.")
+        
+    return chunk_response
+
+# if __name__ == "__main__":
+#     TEST_THU_TUC_HANH_CHINH = [
+#         "chuyển trường cho con xong có cần làm lại BHYT không",
+#         # "Làm lại giấy khai sinh bị mất bản chính thì cần gì?",
+#         # "Xin bản sao khai sinh cho con thì nộp online được không?",
+#         # "Mình muốn sửa năm sinh trên giấy khai sinh thì làm sao?",
+#         # "Đăng ký kết hôn với người nước ngoài cần giấy tờ gì?",
+#         # "Vợ chồng nhờ người thân đi nộp hộ hồ sơ kết hôn được không?",
+#         # "Quá hạn mới đi khai sinh cho bé thì có bị phạt không?",
+#         # "Em muốn mở quán ăn nhỏ tại nhà thì đăng ký kiểu gì?",
+#         # "Hộ kinh doanh tạm nghỉ mấy tháng thì báo sao?",
+#         # "Nghỉ bán nữa, muốn đóng hộ kinh doanh luôn",
+#         # "Em bán rượu thì xin giấy phép ở đâu?",
+#         # "Quán tạp hóa bán thuốc lá thì cần giấy gì?",
+#         # "Mua bán đất giữa 2 bên gia đình thì thủ tục sao?",
+#         # "Sổ đỏ bị sai tên đệm, giờ chỉnh lại sao ạ?",
+#         # "Nhà em xây thêm tầng có phải xin phép không?",
+#         # "Cho em hỏi nhập học lớp 1 cần giấy tờ gì?",
+#         # "Chuyển trường cho con giữa năm học làm thế nào?",
+#         # "Bị mất thẻ BHYT thì xin cấp lại ở đâu?",
+#         # "Nhà em khó khăn muốn xin trợ cấp xã hội thì làm sao?",
+#         # "Người thân mất thì xin hỗ trợ mai táng phí thế nào?",
+#         # "Mở tiệm cắt tóc nhỏ với đăng ký tạm trú cho nhân viên cần làm gì trước?",
+#         # "Vừa muốn chuyển nhượng đất vừa xin giấy phép xây nhà luôn được không?",
+#         # "Đăng ký khai sinh cho con và nhập hộ khẩu luôn một lần được không?",
+#         # "Có yếu tố nước ngoài mà lại ủy quyền nộp hồ sơ kết hôn được không?",
+#         # "Tôi đã có đủ giấy tờ cá nhân rồi, giờ làm lại khai sinh được không?",
+#         # "Trễ hạn đăng ký khai tử thì xử lý sao?",
+#         # "Ở xã biên giới, kết hôn với người nước ngoài thì thủ tục khác gì?",
+#         # "Em muốn xin xác nhận tình trạng hôn nhân để đi làm hồ sơ",
+#         # "Cửa hàng em muốn hoạt động lại sau thời gian tạm nghỉ",
+#         # "Xin công bố lại sản phẩm bị thất lạc hồ sơ công bố trước đó",
+#         # "Giấy khai sinh con em thất lạc lâu rồi, giờ cưới vợ có sao không?",
+#         # "Nhà em bán thêm bia rượu lai rai thôi, có cần xin phép không?",
+#         # "Mình đổi CCCD rồi thì sổ đỏ có cần đổi theo không?",
+#         # "Em muốn làm giấy tờ cho bé nhưng ba nó là người nước ngoài.",
+#         # "Em đi làm xa, ủy quyền cho chị nộp hồ sơ giúp được không?",
+#         # "Vừa mở quán vừa xin giấy an toàn thực phẩm luôn được không?",
+#         # "Quán đang nghỉ tạm, giờ bán lại thì làm thủ tục gì?",
+#         # "Làm trích lục khai sinh online hay phải ra phường?",
+#         # "Chuyển trường cho con xong có phải làm lại bảo hiểm y tế không?",
+#         # "Trễ hạn đăng ký khai sinh mấy tháng thì xử lý thế nào?",
+#     ]
+#     for query in TEST_THU_TUC_HANH_CHINH:
+#         meta = classify_llm(query)
+
+#         query_mode = meta.get("query_mode")
+#         print(f"Query mode: {query_mode}")
+
+#         procedures = meta["unit"]
+#         procedure_action = meta["procedure_action"]
+#         special_contexts = meta["special_contexts"]
+
+#         normalized_query = normalize_text(query)
+
+#         res = classify_v2(normalized_query, PREPARED)
+#         category, subject = res["category"], res["subject"]
+
+#         print(f"Phân loại chủ đề: {category} - {subject}")
+
+#         if query_mode == "single_procedure":
+#             print(f"Thủ tục chính: {procedures[0]['procedure']} - {procedures[0]['subject']}")
+#             response = supabase.rpc(
+#                 "search_documents_full_hybrid_v7",
+#                 {
+#                     "p_query_format": normalized_query,
+#                     "p_query_embedding": get_embedding(procedures[0]['procedure']),
+#                     "p_tenant": "xa_ba_diem",
+#                     "p_category": category,
+#                     "p_subject": procedures[0]['subject'] if procedures[0]['subject'] != subject else subject,
+#                     "p_procedure": normalize_text(procedures[0]['procedure']),
+#                     "p_procedure_action": procedure_action,
+#                     "p_special_contexts": special_contexts,
+#                     "p_limit": 5
+#                 }
+#             ).execute()
 
 
-                chunks = response.data or []
-                print(chunks[0])
+#             chunks = response.data or []
+#             print(f"Tìm thấy {len(chunks)} đoạn văn bản liên quan:")
+#             print(chunks[0]) if chunks else print("Không tìm thấy đoạn văn bản nào liên quan.") 
+#         else:
+#             print("Các thủ tục chính:")
+#             for proc in procedures:
+#                 print(f"Thủ tục chính: {proc['procedure']} - {proc['subject']}")
+
+#                 response = supabase.rpc(
+#                     "search_documents_full_hybrid_v7",
+#                     {
+#                         "p_query_format": normalize_text(proc['procedure']),
+#                         "p_query_embedding": get_embedding(proc['procedure']),
+#                         "p_tenant": "xa_ba_diem",
+#                         "p_category": category,
+#                         "p_subject": proc['subject'],
+#                         "p_procedure": normalize_text(proc['procedure']),
+#                         "p_procedure_action": procedure_action,
+#                         "p_special_contexts": special_contexts,
+#                         "p_limit": 5
+#                     }
+#                 ).execute()
+
+
+#                 chunks = response.data or []
+#                 print(chunks[0]) if chunks else print("Không tìm thấy đoạn văn bản nào liên quan.")

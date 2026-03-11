@@ -3,6 +3,13 @@ import math
 import numpy as np
 from model import client
 
+embedding_cache = {}
+
+def get_proc_embedding(proc):
+    if proc not in embedding_cache:
+        embedding_cache[proc] = get_embedding(proc)
+    return embedding_cache[proc]
+
 def get_embedding(text: str):
     try:
         response = client.embeddings.create(
