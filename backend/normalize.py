@@ -151,7 +151,9 @@ SINGLE_TOKEN_MAP = {
     "dkks": "đăng ký khai sinh",
     "dkkt": "đăng ký khai tử",
     "sdt": "số điện thoại",
-    "kp": "khu phố"
+    "kp": "khu phố",
+    "onl": "trực tuyến",
+    "online": "trực tuyến"
 }
 
 # CONTEXT_RULES = [
@@ -179,7 +181,9 @@ CONTEXT_RULES = [
     (r"\b(dk|đk|đăng ký)\s+kh\b", r"\1 kết hôn"),
     (r"\b(dk|đk|đăng ký)\s+tt\b", r"\1 tạm trú"),
     (r"\b(dk|đk|đăng ký)\s+tv\b", r"\1 tạm vắng"),
-    (r"\b(dk|đk|đăng ký)\s+bh\b", r"\1 bảo hiểm")
+    (r"\b(dk|đk|đăng ký)\s+bh\b", r"\1 bảo hiểm"),
+    (r"\bnop\s+onl\b", r"nộp trực tuyến"),
+    (r"\bho\s+so\s+onl\b", r"hồ sơ trực tuyến")
 
 ]
 # NEGATIVE_CONTEXT = {

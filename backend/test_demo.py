@@ -15,12 +15,14 @@ PERSON_MARKERS = [
 PERSON_PHONE_PATTERNS = [
     r"\bso dien thoai cua\b",     # "số điện thoại của chị Lan"
     r"\bso cua\b",            # "sđt của..."
+    r"\bsdt cua\b",
     r"\blien he (chi|anh|ong|ba)\b",
 ]
 
 ORG_MARKERS = [
     "phuong", "xa", "ubnd", "uy ban", "mot cua", "bo phan mot cua",
-    "duong day nong", "tong dai", "lien he phuong", "lien he xa"
+    "duong day nong", "tong dai", "lien he phuong", "lien he xa",
+    "van phong", "co quan", "tru so"
 ]
 
 LIFE_EVENT_KWS = [
@@ -154,7 +156,8 @@ SPECIAL_TOPIC_TO_SUBJECT = {
     # Công thương: rượu/thuốc lá
     "cong_thuong": [
         "ban ruou", "san xuat ruou", "kinh doanh ruou",
-        "thuoc la", "ban thuoc la"
+        "thuoc la", "ban thuoc la",
+        "quan ruou", "mo quan ruou"
     ],
 
     # Đất đai: sổ đỏ / GCN / biến động / chuyển nhượng
@@ -524,13 +527,14 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
         subject = "lich_lam_viec"
         confidence = 0.85
     
+    # 3) Liên hệ cá nhân (phone/contact of a person, not org)
     elif is_phone_of_person(q_norm):
         category = "to_chuc_bo_may"
         subject = "nhan_su"
         confidence = 0.9
         signals["person_phone"] = True
-    
-    # 3) Liên hệ
+
+    # 4) Liên hệ tổ chức
     elif contact_score >= 2:
         category = "thong_tin_tong_quan"
         subject = "thong_tin_lien_he"
@@ -541,7 +545,7 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
         subject = "nhan_su"   # hoặc "lanh_dao_khu_pho" nếu bạn có subject riêng
         confidence = 0.92
 
-    # 4) Chức vụ / Nhân sự
+    # 5) Chức vụ / Nhân sự
     elif chuc_vu_score >= 2:
         category = "to_chuc_bo_may"
         subject = "chuc_vu"
@@ -552,7 +556,7 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
         subject = "nhan_su"
         confidence = 0.75
 
-    # 5) General info subjects
+    # 6) General info subjects
     else:
 
         general_subject, general_conf, general_hits = detect_subject_v2(
@@ -572,19 +576,6 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
             need_llm = True
 
     # 5) Khu phố
-    # elif khu_pho_score >= 2:
-    #     category = "thong_tin_tong_quan"
-    #     subject = "thong_tin_khu_pho"
-
-    #     if has_any(q_norm, DS_KHU_PHO_KEYWORDS) and has_any(q_norm, KHU_PHO_KEYWORDS):
-    #         subject = "tong_quan"
-
-    #     confidence = 0.75
-    
-
-        # if is_phone_of_person(q_norm):
-            
-
     # 6) Tổng quan
     # elif tong_quan_score >= 1:
     #     category = "thong_tin_tong_quan"

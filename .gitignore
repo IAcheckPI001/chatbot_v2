@@ -10,6 +10,9 @@ dist/
 # Env
 .env
 
+# Generated regression artifacts
+retest_results_*.json
+
 # OS
 .DS_Store
 Thumbs.db

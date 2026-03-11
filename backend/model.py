@@ -163,13 +163,18 @@ SUBJECT_PHAN_ANH_KIEN_NGHI = [
 ]
 
 SUBJECTS = [
-    "tu_phap_ho_tich",
-    "thong_tin_khu_pho",
+    # thong_tin_tong_quan
+    "gioi_thieu_dia_phuong",
+    "lich_su_hanh_chinh",
+    "dia_ly",
+    "thong_ke",
+    "giao_thong",
     "lich_lam_viec",
-    "chuc_vu",
     "thong_tin_lien_he",
-    "tong_quan",
-    "nhan_su",
+    "dich_vu_cong_truc_tuyen",
+
+    # thu_tuc_hanh_chinh
+    "tu_phap_ho_tich",
     "doanh_nghiep",
     "giao_thong_van_tai",
     "dat_dai",
@@ -186,6 +191,18 @@ SUBJECTS = [
     "nong_nghiep",
     "cong_thuong",
     "tai_chinh_thue_phi",
+
+    # to_chuc_bo_may
+    "chuc_vu",
+    "nhan_su",
+
+    # phan_anh_kien_nghi
+    "ha_tang",
+    "moi_truong",
+    "an_ninh_trat_tu",
+    "do_thi",
+    "khieu_nai_to_cao",
+    "he_thong",
 ]
 
 def classify_llm(query: str):
@@ -268,6 +285,8 @@ Nếu category = tuong_tac
 QUY TẮC
 
 - Chỉ chọn subject phù hợp với category
+- `thong_tin_lien_he` CHỈ dùng cho thông tin liên hệ của đơn vị/cơ quan (UBND/xã/phường: hotline, điện thoại văn phòng, email, website).
+- Nếu câu hỏi liên hệ gắn với cá nhân/chức danh (ví dụ: "số của anh A", "liên hệ chủ tịch") thì chọn `to_chuc_bo_may` với subject `nhan_su` hoặc `chuc_vu`, KHÔNG chọn `thong_tin_lien_he`.
 - Nếu câu hỏi vừa có dấu hiệu thủ tục vừa có nội dung báo sự cố/vấn đề đang xảy ra thực tế, ưu tiên chọn phan_anh_kien_nghi.
 - Nếu không chắc chắn, hãy chọn subject gần nhất theo lĩnh vực của câu hỏi.
 - Không giải thích

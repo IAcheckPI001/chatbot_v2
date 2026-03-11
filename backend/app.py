@@ -314,6 +314,15 @@ def clear_session():
     return jsonify({"message": "Session cleared"})
 
 def get_related_chunks(supabase, tenant_name: str, source_chunk_id: str):
+    # Skip relation lookup when source chunk is missing/invalid.
+    if not source_chunk_id:
+        return []
+
+    try:
+        uuid.UUID(str(source_chunk_id))
+    except (ValueError, TypeError, AttributeError):
+        return []
+
     rel_res = supabase.table("chunk_relations") \
         .select("target_chunk_id") \
         .eq("tenant_name", tenant_name) \
@@ -332,6 +341,27 @@ def get_related_chunks(supabase, tenant_name: str, source_chunk_id: str):
         .execute()
 
     return doc_res.data or []
+
+
+def normalize_llm_label(value):
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    if s.lower() in {"none", "null", "unknown", "n/a"}:
+        return None
+    return s
+
+
+def is_complaint_intent(text_norm: str) -> bool:
+    complaint_kws = [
+        "phan nan", "khieu nai", "to cao", "kien nghi", "gop y",
+        "khong hai long", "buc xuc", "thai do", "phuc vu",
+        "gay on", "on ao", "danh nhau", "trom cap", "bao cong an"
+    ]
+    text_norm = (text_norm or "").lower()
+    return any(kw in text_norm for kw in complaint_kws)
 
 @app.route('/api/toggle-note/<log_id>', methods=['POST'])
 def toggle_note(log_id):
@@ -490,16 +520,20 @@ def chat_stream():
             category_llm, subject_llm = classify_llm(user_message)
             yield f"data: {json.dumps({'log': f'LLM classify => Category: {category_llm}, Subject: {subject_llm}'})}\n\n"
 
-            if category_llm  == "tuong_tac":
-                if subject_llm == "chao_hoi":
+            category_llm_clean = normalize_llm_label(category_llm)
+            subject_llm_clean = normalize_llm_label(subject_llm)
+            allow_llm_override = True
+
+            if category_llm_clean == "tuong_tac":
+                if subject_llm_clean == "chao_hoi":
                     end = time.perf_counter()
                     duration = (end - start) * 1000 
                     log_data["tenant_name"]= 'xa_ba_diem'
                     log_data["raw_query"] = origin_mess
                     log_data["expanded_query"] = user_message
                     log_data["answer"]= help_content
-                    log_data["detected_category"]= category_llm
-                    log_data["detected_subject"]= subject_llm
+                    log_data["detected_category"]= category_llm_clean
+                    log_data["detected_subject"]= subject_llm_clean
                     log_data["event_type"] = "normal"
                     log_data["session_chat"]= session_id
                     log_data["response_time_ms"]= round(duration / 1000,2)
@@ -508,15 +542,19 @@ def chat_stream():
                     yield f"data: {json.dumps({'replies': help_content, 'chunks': []})}\n\n"
                     return
 
-                if subject_llm == "phan_nan":
+                if subject_llm_clean == "phan_nan" and not is_complaint_intent(normalized_query):
+                    allow_llm_override = False
+                    yield f"data: {json.dumps({'log': 'Bo qua nhan phan_nan vi khong co dau hieu phan nan ro rang'})}\n\n"
+
+                if subject_llm_clean == "phan_nan" and is_complaint_intent(normalized_query):
                     end = time.perf_counter()
                     duration = (end - start) * 1000 
                     log_data["tenant_name"]= 'xa_ba_diem'
                     log_data["raw_query"] = origin_mess
                     log_data["expanded_query"] = user_message
                     log_data["answer"]= complaint_content
-                    log_data["detected_category"]= category_llm
-                    log_data["detected_subject"]= subject_llm
+                    log_data["detected_category"]= category_llm_clean
+                    log_data["detected_subject"]= subject_llm_clean
                     log_data["event_type"] = "complaint"
                     log_data["session_chat"]= session_id
                     log_data["response_time_ms"]= round(duration / 1000,2)
@@ -526,8 +564,9 @@ def chat_stream():
                     return
 
             # chỉ override khi LLM trả rõ ràng
-            category = category_llm or category
-            subject = subject_llm or subject
+            if allow_llm_override:
+                category = category_llm_clean or category
+                subject = subject_llm_clean or subject
 
 
         # end = time.perf_counter()
