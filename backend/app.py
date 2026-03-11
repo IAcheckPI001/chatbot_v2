@@ -80,18 +80,57 @@ def get_alias():
 @app.route('/api/get-logs', methods=['GET'])
 def get_logs():
     try:
-        response = supabase.table("log_query") \
-            .select("id, raw_query, expanded_query, detected_category, detected_subject, answer, event_type, reason, alias_score, document_score, confidence_score, response_time_ms", "is_noted") \
-            .execute()
+        # Supabase select() defaults to 1000 rows. Paginate to return full log set.
+        page_size = request.args.get("page_size", default=1000, type=int)
+        max_rows = request.args.get("max_rows", default=None, type=int)
 
-        if not response.data:
+        if page_size is None or page_size <= 0:
+            page_size = 1000
+        page_size = min(page_size, 1000)
+
+        fields = (
+            "id, raw_query, expanded_query, detected_category, detected_subject, "
+            "answer, event_type, reason, alias_score, document_score, confidence_score, "
+            "response_time_ms, is_noted"
+        )
+
+        logs = []
+        start = 0
+        while True:
+            response = (
+                supabase.table("log_query")
+                .select(fields)
+                .order("created_at", desc=True)
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+
+            batch = response.data or []
+            if not batch:
+                break
+
+            logs.extend(batch)
+
+            if max_rows is not None and max_rows > 0 and len(logs) >= max_rows:
+                logs = logs[:max_rows]
+                break
+
+            if len(batch) < page_size:
+                break
+
+            start += page_size
+
+        if not logs:
             return jsonify({
                 "logs": [],
-                "message": "No alias available"
+                "message": "No logs available"
             }), 200
 
         return jsonify({
-            "logs": response.data
+            "logs": logs,
+            "total": len(logs),
+            "page_size": page_size,
+            "max_rows": max_rows
         }), 200
 
     except Exception as e:
