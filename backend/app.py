@@ -1,6 +1,7 @@
 import uuid
 import time
 import hashlib
+from typing import Any, Dict, List, Optional, Tuple
 from threading import Lock
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -14,7 +15,7 @@ from flask import Response, stream_with_context
 import json
 from normalize import SINGLE_TOKEN_MAP, CONTEXT_RULES, BANNED_KEYWORDS, normalize_text, check_rewrite, AbbreviationResolver
 from model import rewrite_query, detect_query, llm_answer, classify_llm
-from test_demo import classify_v2
+from test_demo import classify_v2, classify_multi_intent
 from system import apply_semantic_guard
 from embedding import get_proc_embedding, get_embedding
 from utils import SUBJECT_KEYWORDS, GENERAL_INFO_SUBJECT_KEYWORDS, classify, prepare_subject_keywords
@@ -52,6 +53,37 @@ LLM_CLASSIFY_CACHE_MAX = 1000
 DETECT_QUERY_CACHE_MAX = 500
 SEARCH_V6_CACHE_MAX = 1500
 RELATED_CHUNKS_CACHE_MAX = 2000
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+ENABLE_MULTI_INTENT = _env_flag("ENABLE_MULTI_INTENT", False)
+ENABLE_MULTI_INTENT_SHADOW = _env_flag("ENABLE_MULTI_INTENT_SHADOW", False)
+ENABLE_MULTI_INTENT_ACTIVE = _env_flag("ENABLE_MULTI_INTENT_ACTIVE", False)  # Route retrieval via shadow primary intent
+ENABLE_MULTI_INTENT_LIGHT_SECONDARY = _env_flag("ENABLE_MULTI_INTENT_LIGHT_SECONDARY", False)
+
+SECONDARY_CLARIFY_THRESHOLD = float(os.getenv("SECONDARY_CLARIFY_THRESHOLD", "0.60"))
+CONFLICT_DELTA_THRESHOLD = float(os.getenv("CONFLICT_DELTA_THRESHOLD", "0.08"))
+
+RETRIEVAL_TAXONOMY = {
+    "thu_tuc_hanh_chinh": set(SUBJECT_KEYWORDS.keys()),
+    "thong_tin_tong_quan": set(GENERAL_INFO_SUBJECT_KEYWORDS.keys()) | {"lich_lam_viec", "thong_tin_lien_he"},
+    "to_chuc_bo_may": {"chuc_vu", "nhan_su"},
+    "phan_anh_kien_nghi": {
+        "ha_tang",
+        "moi_truong",
+        "an_ninh_trat_tu",
+        "giao_thong",
+        "do_thi",
+        "khieu_nai_to_cao",
+        "he_thong",
+    },
+}
 
 
 def _cache_get(cache, key):
@@ -342,6 +374,16 @@ def create_alias():
 def create_log(log_data):
     if log_data is None:
         return
+
+    shadow_payload = log_data.pop("_multi_intent_shadow", None)
+    if shadow_payload:
+        shadow_text = json.dumps(shadow_payload, ensure_ascii=True)
+        base_reason = log_data.get("reason")
+        if base_reason:
+            reason = f"{base_reason} | [multi_intent_shadow]{shadow_text}"
+        else:
+            reason = f"[multi_intent_shadow]{shadow_text}"
+        log_data["reason"] = reason[:1800]
     
     try:
         response = supabase.table("log_query") \
@@ -516,6 +558,85 @@ def normalize_llm_label(value):
     return s
 
 
+def guard_retrieval_label(category: Optional[str], subject: Optional[str]) -> Tuple[Optional[str], Optional[str], bool]:
+    cat = normalize_llm_label(category)
+    sub = normalize_llm_label(subject)
+    if cat is None:
+        return None, sub, False
+
+    if cat not in RETRIEVAL_TAXONOMY:
+        return None, None, True
+
+    valid_subjects = RETRIEVAL_TAXONOMY.get(cat, set())
+    if sub is not None and sub not in valid_subjects:
+        return cat, None, True
+
+    return cat, sub, False
+
+
+def apply_taxonomy_guard_to_intents(intents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    guarded: List[Dict[str, Any]] = []
+    for intent in intents:
+        item = dict(intent)
+        if item.get("type") == "retrieval":
+            cat, sub, invalid = guard_retrieval_label(item.get("category"), item.get("subject"))
+            item["category"] = cat
+            item["subject"] = sub
+            item["invalid_label"] = invalid
+        else:
+            item["invalid_label"] = False
+        guarded.append(item)
+    return guarded
+
+
+def summarize_multi_intent_shadow(shadow_contract: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not shadow_contract:
+        return None
+
+    intents = shadow_contract.get("intents") or []
+    primary_idx = shadow_contract.get("primary_intent_index")
+    primary_intent = None
+    if isinstance(primary_idx, int) and 0 <= primary_idx < len(intents):
+        primary_intent = intents[primary_idx]
+
+    secondary_intents = [
+        intent
+        for idx, intent in enumerate(intents)
+        if isinstance(primary_idx, int) and idx != primary_idx
+    ]
+
+    secondary_policy = "clarify"
+    if ENABLE_MULTI_INTENT_LIGHT_SECONDARY:
+        if any((it.get("type") == "retrieval" and float(it.get("confidence") or 0.0) >= SECONDARY_CLARIFY_THRESHOLD) for it in secondary_intents):
+            secondary_policy = "light_retrieval"
+
+    summary = {
+        "is_multi_intent": bool(shadow_contract.get("is_multi_intent")),
+        "intent_count": len(intents),
+        "primary_intent": {
+            "type": primary_intent.get("type") if primary_intent else None,
+            "category": primary_intent.get("category") if primary_intent else None,
+            "subject": primary_intent.get("subject") if primary_intent else None,
+            "confidence": primary_intent.get("confidence") if primary_intent else None,
+            "priority_score": primary_intent.get("priority_score") if primary_intent else None,
+        },
+        "secondary_intents": [
+            {
+                "type": it.get("type"),
+                "category": it.get("category"),
+                "subject": it.get("subject"),
+                "confidence": it.get("confidence"),
+                "priority_score": it.get("priority_score"),
+            }
+            for it in secondary_intents[:3]
+        ],
+        "has_conflict": bool(shadow_contract.get("has_conflict")),
+        "decomposition_method": shadow_contract.get("decomposition_method") or "rule",
+        "secondary_policy": secondary_policy,
+    }
+    return summary
+
+
 def is_complaint_intent(text_norm: str) -> bool:
     complaint_kws = [
         "phan nan", "khieu nai", "to cao", "kien nghi", "gop y",
@@ -650,9 +771,50 @@ def chat_stream():
 
         yield f"data: {json.dumps({'log': f'Normalized: {normalized_query}'})}\n\n"
 
+        shadow_contract = None
+        shadow_summary = None
+        if ENABLE_MULTI_INTENT and ENABLE_MULTI_INTENT_SHADOW:
+            shadow_contract = classify_multi_intent(normalized_query, PREPARED)
+            shadow_contract["intents"] = apply_taxonomy_guard_to_intents(shadow_contract.get("intents") or [])
+            shadow_summary = summarize_multi_intent_shadow(shadow_contract)
+            log_data["_multi_intent_shadow"] = shadow_summary
+            yield f"data: {json.dumps({'log': f'Multi-intent shadow: {shadow_summary}'})}\n\n"
+
         # category, subject = classify(normalized_query, PREPARED)
         res = classify_v2(normalized_query, PREPARED)
         category, subject = res["category"], res["subject"]
+
+        category, subject, invalid_main_label = guard_retrieval_label(category, subject)
+        if invalid_main_label:
+            yield f"data: {json.dumps({'log': 'Taxonomy guard: reset invalid retrieval label to safe fallback'})}\n\n"
+
+        # ── Active multi-intent routing ────────────────────────────────────────
+        # Khi ENABLE_MULTI_INTENT_ACTIVE=true và shadow phát hiện được multi-intent
+        # không conflict → override (category, subject) bằng primary_intent của shadow.
+        # Điều kiện: primary phải rõ ràng hơn kết quả classify_v2 hoặc classify_v2
+        # đã route sai (subject khác nhau).
+        if (
+            ENABLE_MULTI_INTENT
+            and ENABLE_MULTI_INTENT_ACTIVE
+            and shadow_summary
+            and shadow_summary.get("is_multi_intent")
+            and not shadow_summary.get("has_conflict")
+        ):
+            shadow_primary = shadow_summary.get("primary_intent") or {}
+            sp_cat = shadow_primary.get("category")
+            sp_sub = shadow_primary.get("subject")
+            sp_score = float(shadow_primary.get("priority_score") or 0.0)
+
+            if sp_cat and sp_score >= 0.60:
+                # Chỉ override khi shadow primary có valid label và score đủ tin cậy
+                sp_cat_g, sp_sub_g, sp_invalid = guard_retrieval_label(sp_cat, sp_sub)
+                if not sp_invalid and sp_cat_g:
+                    yield f"data: {json.dumps({'log': f'[Active] Override category={sp_cat_g}, subject={sp_sub_g} (từ shadow primary, score={sp_score})'})}\n\n"
+                    category = sp_cat_g
+                    subject = sp_sub_g
+                    re_check = True  # Kích hoạt fallback search nếu retrieval trả rỗng
+        # ──────────────────────────────────────────────────────────────────────
+
         yield f"data: {json.dumps({'log': f'Category: {category}, Subject: {subject}'})}\n\n"
 
         # if category is None:
@@ -727,6 +889,10 @@ def chat_stream():
             if allow_llm_override:
                 category = category_llm_clean or category
                 subject = subject_llm_clean or subject
+
+            category, subject, invalid_override_label = guard_retrieval_label(category, subject)
+            if invalid_override_label:
+                yield f"data: {json.dumps({'log': 'Taxonomy guard: dropped invalid LLM label before retrieval'})}\n\n"
 
 
         # end = time.perf_counter()
@@ -809,7 +975,69 @@ def chat_stream():
                 f"### Tài liệu {i+1}\n{chunk['text_content']}"
                 for i, chunk in enumerate(chunks[:5])
             )
-        
+
+        # ── Secondary intent retrieval ─────────────────────────────────────────
+        # Khi active routing đã override theo primary intent, bổ sung thêm chunks
+        # từ secondary intents để LLM có đủ context trả lời cả 2 nhu cầu.
+        # Primary chunks được giới hạn còn 2 để nhường slot cho secondary,
+        # tránh LLM bị nhiễu bởi quá nhiều entities cùng loại.
+        if (
+            ENABLE_MULTI_INTENT
+            and ENABLE_MULTI_INTENT_ACTIVE
+            and shadow_summary
+            and shadow_summary.get("is_multi_intent")
+            and not shadow_summary.get("has_conflict")
+        ):
+            secondary_intents = shadow_summary.get("secondary_intents") or []
+            has_secondary = False
+            for sec in secondary_intents[:2]:
+                if sec.get("category"):
+                    has_secondary = True
+                    break
+
+            if has_secondary:
+                # Giới hạn primary xuống 2 chunk để tránh nhiễu
+                primary_context = "\n\n".join(
+                    f"### [Thông tin chính] Tài liệu {i+1}\n{chunk['text_content']}"
+                    for i, chunk in enumerate(chunks[:2])
+                )
+                context = primary_context
+                extra_doc_offset = 2
+
+                for sec in secondary_intents[:2]:
+                    sec_cat = sec.get("category")
+                    sec_sub = sec.get("subject")
+                    if not sec_cat:
+                        continue
+                    sec_cat_g, sec_sub_g, sec_invalid = guard_retrieval_label(sec_cat, sec_sub)
+                    if sec_invalid or not sec_cat_g:
+                        continue
+
+                    if sec_cat_g == "thu_tuc_hanh_chinh":
+                        sec_chunks = export_metadata_filter_chunk(sec_cat_g, user_message)
+                    else:
+                        sec_chunks = search_documents_full_hybrid_v6_cached(
+                            normalized_query=normalized_query,
+                            query_embedding=query_embedding,
+                            category=sec_cat_g,
+                            subject=sec_sub_g,
+                            p_limit=3,
+                            tenant="xa_ba_diem"
+                        )
+
+                    if sec_chunks:
+                        seen_ids = {c.get("id") for c in chunks[:2]}
+                        new_sec = [c for c in sec_chunks if c.get("id") not in seen_ids]
+                        if new_sec:
+                            sec_context = "\n\n".join(
+                                f"### [Thông tin bổ sung] Tài liệu {extra_doc_offset + i + 1}\n{c['text_content']}"
+                                for i, c in enumerate(new_sec[:3])
+                            )
+                            context = context + "\n\n" + sec_context
+                            extra_doc_offset += len(new_sec[:3])
+                            yield f"data: {json.dumps({'log': f'[Secondary] Retrieved {len(new_sec[:3])} chunks for {sec_cat_g}/{sec_sub_g}'})}\n\n"
+        # ──────────────────────────────────────────────────────────────────────
+
         print(context)
         
         # LOW_THRESHOLD = 0.25
@@ -880,6 +1108,41 @@ def chat_stream():
                     if chunk.get("text_content")
                 )
                 context += "\n\n" + related_context
+
+            # Fast-path: câu hỏi mang tính khẩn liên quan an ninh/trật tự nhưng đã có
+            # contact chunk phù hợp thì trả trực tiếp top chunk, tránh fallback qa_need_info.
+            if (
+                category == "thong_tin_tong_quan"
+                and subject == "thong_tin_lien_he"
+                and chunks
+                and is_complaint_intent(normalized_query)
+                and score >= 0.28
+            ):
+                yield f"data: {json.dumps({'log': 'Ưu tiên trả thông tin liên hệ khẩn từ chunk top'})}\n\n"
+
+                answer = (
+                    "Anh/chị có thể liên hệ ngay theo thông tin sau:\n"
+                    f"{chunks[0].get('text_content', '')}"
+                )
+
+                end = time.perf_counter()
+                duration = (end - start) * 1000
+                log_data["tenant_name"] = 'xa_ba_diem'
+                log_data["raw_query"] = origin_mess
+                log_data["expanded_query"] = user_message
+                log_data["answer"] = answer
+                log_data["detected_category"] = category
+                log_data["detected_subject"] = subject
+                log_data["event_type"] = "normal"
+                log_data["alias_score"] = chunks[0]["alias_score"]
+                log_data["document_score"] = chunks[0]["document_score"]
+                log_data["confidence_score"] = chunks[0]["confidence_score"]
+                log_data["reason"] = "Fast-path emergency contact from top chunk"
+                log_data["session_chat"] = session_id
+                log_data["response_time_ms"] = round(duration / 1000, 2)
+                create_log(log_data)
+                yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
+                return
 
             print(f"Context after adding related chunks: {context}")
             

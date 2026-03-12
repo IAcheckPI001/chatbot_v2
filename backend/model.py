@@ -77,6 +77,8 @@ Ví dụ:
 
 QUY TẮC:
 - Ưu tiên xét theo thứ tự:
+- QUAN TRỌNG: Nếu tài liệu tìm được có đề cập trực tiếp đến thủ tục / nội dung người dùng hỏi, hãy chọn "answerable" — kể cả khi thẩm quyền giải quyết đầy đủ thuộc cơ quan khác (Tòa án, Sở, Phòng...). Chatbot có vai trò cung cấp thông tin hướng dẫn, không cần phải là nơi giải quyết trực tiếp.
+- Không dùng kiến thức bên ngoài để bác bỏ nội dung trong tài liệu. Tài liệu là nguồn duy nhất.
   1. banned
   2. answerable
   3. qa_need_info
@@ -738,6 +740,12 @@ Yêu cầu:
 - Chỉ nêu điều kiện khi thật sự cần để tránh hiểu sai.
 - Nếu tài liệu có nêu hồ sơ, nơi nộp, thời gian giải quyết thì có thể tóm tắt ngắn gọn.
 - Không bịa thêm thông tin ngoài tài liệu.
+
+Quy tắc xét duyệt hồ sơ (BẮT BUỘC TUÂN THỦ STRICTLY):
+- Các mục liệt kê trong phần "Hồ sơ gồm" là điều kiện bắt buộc.
+- Ký tự "/" hoặc chữ "hoặc" có nghĩa là chỉ cần 1 trong các loại giấy tờ đó.
+- NẾU người dùng hỏi về việc thiếu/mất một loại giấy tờ, bạn PHẢI trả lời rõ là KHÔNG THỂ thực hiện thủ tục, TRỪ KHI họ có giấy tờ thay thế hợp lệ ghi trong tài liệu.
+- Ví dụ: Tài liệu ghi "CCCD/Hộ chiếu", nếu người dùng mất CCCD, phải hướng dẫn họ dùng Hộ chiếu thay thế. Nếu không có cả hai, không thể đăng ký.
 """
     try:
         response = llm_generate.invoke(prompt)

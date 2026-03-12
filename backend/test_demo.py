@@ -16,6 +16,7 @@ PERSON_PHONE_PATTERNS = [
     r"\bso dien thoai cua\b",     # "số điện thoại của chị Lan"
     r"\bso cua\b",            # "sđt của..."
     r"\bsdt cua\b",
+    r"\bsdt\s+(chi|anh|ong|ba|co|chu|em)\b",  # "sdt chi thu"
     r"\blien he (chi|anh|ong|ba)\b",
 ]
 
@@ -66,7 +67,11 @@ def has_any(q_norm: str, kws: List[str]) -> bool:
 
 def is_phone_of_person(q_norm: str) -> bool:
     # có "so dien thoai" hoặc "sdt"
-    has_phone_kw = kw_regex("so dien thoai").search(q_norm) or kw_regex("so cua").search(q_norm)
+    has_phone_kw = (
+        kw_regex("so dien thoai").search(q_norm)
+        or kw_regex("so cua").search(q_norm)
+        or kw_regex("sdt").search(q_norm)
+    )
     if not has_phone_kw:
         return False
 
@@ -242,7 +247,7 @@ SPECIAL_TOPIC_TO_SUBJECT = {
 
     # Tư pháp hộ tịch (nếu bạn muốn bridge luôn cho nhóm này)
     "tu_phap_ho_tich": [
-        "khai sinh", "khai tu", "ket hon", "trich luc",
+        "khai sinh", "khai tu", "ket hon", "ly hon", "trich luc",
         "chung thuc", "quoc tich", "giam ho", "nhan cha me con", "nuoi con nuoi",
         "tam tru",
         "tam vang","dang ky tam tru",
@@ -274,6 +279,19 @@ ROLE_KEYWORDS = [
 ]
 
 LIST_JOINERS = ["va", "voi", "cung", "kem", "hay", "&"]
+SPAN_CONNECTORS = ["va", "voi", "roi", "sau do", "dong thoi", "cung", "kem", "hay", "&"]
+
+GREETING_KWS = [
+    "xin chao", "chao", "hello", "hi", "alo", "ban oi", "em oi", "cho minh hoi"
+]
+
+HELP_KWS = [
+    "ban giup", "ho tro", "tu van", "huong dan", "giup toi", "giup minh"
+]
+
+COMPLAINT_KWS = [
+    "phan nan", "khieu nai", "to cao", "kien nghi", "khong hai long", "buc xuc", "xu ly cham"
+]
 
 
 def detect_intent(q_norm: str, category: Optional[str]) -> str:
@@ -289,6 +307,182 @@ def detect_intent(q_norm: str, category: Optional[str]) -> str:
     if category == "thu_tuc_hanh_chinh":
         return "procedure"
     return "general"
+
+
+def split_query_into_spans(q_norm: str) -> List[str]:
+    text = re.sub(r"\s+", " ", (q_norm or "").strip())
+    if not text:
+        return []
+
+    raw_parts = [p.strip() for p in re.split(r"[\?;,\.]+", text) if p and p.strip()]
+    connector_pattern = r"\b(?:" + "|".join(re.escape(c) for c in SPAN_CONNECTORS if c != "&") + r")\b|&"
+
+    spans = []
+    for part in raw_parts:
+        pieces = [s.strip() for s in re.split(connector_pattern, part) if s and s.strip()]
+        spans.extend(pieces if pieces else [part])
+
+    if len(spans) <= 1:
+        return spans
+
+    merged = []
+    for span in spans:
+        token_count = len(span.split())
+        if merged and token_count < 3:
+            merged[-1] = f"{merged[-1]} {span}".strip()
+        else:
+            merged.append(span)
+    return merged
+
+
+def _detect_interaction_subject(span_norm: str) -> Optional[str]:
+    if any(kw_regex(kw).search(span_norm) for kw in COMPLAINT_KWS):
+        return "phan_nan"
+    if any(kw_regex(kw).search(span_norm) for kw in GREETING_KWS):
+        return "chao_hoi"
+    if any(kw_regex(kw).search(span_norm) for kw in HELP_KWS):
+        return "qa_need_info"
+    return None
+
+
+def _build_intent_signals(span: str, classify_res: Dict[str, Any]) -> Dict[str, float]:
+    token_count = len((span or "").split())
+    specificity = min(1.0, max(0.2, token_count / 10.0))
+    retrieval_need = 0.9 if classify_res.get("category") else 0.2
+    if classify_res.get("category") == "thu_tuc_hanh_chinh":
+        retrieval_need = 0.95
+    return {
+        "specificity": round(specificity, 3),
+        "retrieval_need": round(retrieval_need, 3),
+    }
+
+
+def classify_span(span: str, prepared: Dict[str, Any]) -> Dict[str, Any]:
+    span_norm = (span or "").strip()
+    if not span_norm:
+        return {
+            "type": "interaction",
+            "category": None,
+            "subject": None,
+            "confidence": 0.0,
+            "span": "",
+            "signals": {"specificity": 0.0, "retrieval_need": 0.0},
+        }
+
+    interaction_subject = _detect_interaction_subject(span_norm)
+    if interaction_subject:
+        return {
+            "type": "interaction",
+            "category": None,
+            "subject": interaction_subject,
+            "confidence": 0.82 if interaction_subject in {"chao_hoi", "phan_nan"} else 0.7,
+            "span": span_norm,
+            "signals": {
+                "specificity": round(min(1.0, max(0.2, len(span_norm.split()) / 10.0)), 3),
+                "retrieval_need": 0.1,
+            },
+        }
+
+    classify_res = classify_v2(span_norm, prepared)
+    intent_type = "retrieval" if classify_res.get("category") else "interaction"
+    signals = _build_intent_signals(span_norm, classify_res)
+
+    return {
+        "type": intent_type,
+        "category": classify_res.get("category"),
+        "subject": classify_res.get("subject"),
+        "confidence": float(classify_res.get("confidence") or 0.0),
+        "span": span_norm,
+        "signals": signals,
+        "need_llm": bool(classify_res.get("need_llm")),
+        "intent": classify_res.get("intent"),
+        "conflict": bool(classify_res.get("conflict")),
+    }
+
+
+def decompose_intents(q_norm: str, prepared: Dict[str, Any]) -> List[Dict[str, Any]]:
+    spans = split_query_into_spans(q_norm)
+    if not spans:
+        return []
+
+    intents: List[Dict[str, Any]] = []
+    for span in spans:
+        intent = classify_span(span, prepared)
+
+        if intent["type"] == "retrieval" and not intent.get("category"):
+            continue
+        if intent["type"] == "interaction" and not intent.get("subject"):
+            continue
+
+        intents.append(intent)
+
+    if intents:
+        return intents
+
+    fallback = classify_span(q_norm, prepared)
+    if fallback.get("type") == "retrieval" and fallback.get("category"):
+        return [fallback]
+    if fallback.get("type") == "interaction" and fallback.get("subject"):
+        return [fallback]
+    return []
+
+
+def rank_intents(intents: List[Dict[str, Any]], delta_threshold: float = 0.08) -> Tuple[Optional[int], bool, List[int]]:
+    if not intents:
+        return None, False, []
+
+    weights = {
+        "confidence": 0.45,
+        "specificity": 0.25,
+        "retrieval_need": 0.30,
+    }
+
+    scored: List[Tuple[int, float]] = []
+    for idx, intent in enumerate(intents):
+        signals = intent.get("signals") or {}
+        confidence = float(intent.get("confidence") or 0.0)
+        specificity = float(signals.get("specificity") or 0.0)
+        retrieval_need = float(signals.get("retrieval_need") or 0.0)
+
+        priority_score = (
+            weights["confidence"] * confidence
+            + weights["specificity"] * specificity
+            + weights["retrieval_need"] * retrieval_need
+        )
+        intent["priority_score"] = round(priority_score, 4)
+        scored.append((idx, priority_score))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    ranked_indexes = [idx for idx, _ in scored]
+    primary_idx = ranked_indexes[0]
+
+    has_conflict = False
+    if len(scored) >= 2:
+        delta = scored[0][1] - scored[1][1]
+        has_conflict = delta < delta_threshold
+
+    return primary_idx, has_conflict, ranked_indexes
+
+
+def classify_multi_intent(q_norm: str, prepared: Dict[str, Any]) -> Dict[str, Any]:
+    intents = decompose_intents(q_norm, prepared)
+    primary_idx, has_conflict, ranked_indexes = rank_intents(intents)
+
+    interaction_intent = "none"
+    for idx in ranked_indexes:
+        intent = intents[idx]
+        if intent.get("type") == "interaction":
+            interaction_intent = intent.get("subject") or "none"
+            break
+
+    return {
+        "interaction_intent": interaction_intent,
+        "intents": intents,
+        "primary_intent_index": primary_idx,
+        "has_conflict": has_conflict,
+        "is_multi_intent": len(intents) >= 2,
+        "decomposition_method": "rule",
+    }
 
 
 # -------------------------

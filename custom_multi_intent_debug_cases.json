@@ -1,0 +1,91 @@
+{
+  "generated_at": "2026-03-12T11:50:00",
+  "source": "manual_debug_set",
+  "total_cases": 12,
+  "cases": [
+    {
+      "id": "M001",
+      "tag": "multi_intent_debug",
+      "query": "cho em xin so dien thoai bo phan mot cua va thu tuc khai sinh can giay to gi",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich"
+    },
+    {
+      "id": "M002",
+      "tag": "multi_intent_debug",
+      "query": "vua muon chuyen nhuong dat vua xin giay phep xay nha",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "dat_dai"
+    },
+    {
+      "id": "M003",
+      "tag": "multi_intent_debug",
+      "query": "cho em hoi lich lam viec ubnd va thu tuc dang ky ket hon",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich"
+    },
+    {
+      "id": "M004",
+      "tag": "multi_intent_debug",
+      "query": "em muon mo quan an nho va dang ky tam tru cho nhan vien",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "doanh_nghiep"
+    },
+    {
+      "id": "M005",
+      "tag": "multi_intent_debug",
+      "query": "chuyen truong cho con xong co can lam lai bhyt khong",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "giao_duc_dao_tao"
+    },
+    {
+      "id": "M006",
+      "tag": "multi_intent_debug",
+      "query": "mat giay khai sinh co dang ky ket hon duoc khong",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich"
+    },
+    {
+      "id": "M007",
+      "tag": "multi_intent_debug",
+      "query": "vua ban ruou vua ban thuoc la thi can giay phep gi",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "cong_thuong"
+    },
+    {
+      "id": "M008",
+      "tag": "multi_intent_debug",
+      "query": "dia chi ubnd xa va thu tuc cap lai khai sinh o dau",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich"
+    },
+    {
+      "id": "M009",
+      "tag": "multi_intent_debug",
+      "query": "xin chao va cho em hoi thu tuc cham dut ho kinh doanh",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "doanh_nghiep"
+    },
+    {
+      "id": "M010",
+      "tag": "multi_intent_debug",
+      "query": "nha em kho khan muon xin tro cap xa hoi va ho so khai sinh cho be",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "bao_hiem_an_sinh"
+    },
+    {
+      "id": "M011",
+      "tag": "multi_intent_debug",
+      "query": "cho toi thong tin lien he can bo tu phap va thu tuc dang ky lai khai sinh",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich"
+    },
+    {
+      "id": "M012",
+      "tag": "multi_intent_debug",
+      "query": "vua muon xin phep xay nha vua chuyen nhuong dat thi lam gi truoc",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "xay_dung_nha_o"
+    }
+  ]
+}

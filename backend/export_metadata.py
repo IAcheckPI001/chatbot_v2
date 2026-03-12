@@ -245,7 +245,7 @@ def export_metadata_filter_chunk(category, query):
         response = supabase.rpc(
             "search_documents_full_hybrid_v7",
             {
-                "p_query_format": normalize_text(query),
+                "p_query_format": normalize_text(procedures[0]['procedure']),
                 "p_query_embedding": get_embedding(procedures[0]['procedure']),
                 "p_tenant": "xa_ba_diem",
                 "p_category": category,
