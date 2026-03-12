@@ -1,0 +1,1011 @@
+{
+  "version": "v5_live_alllogs_dedup_balanced",
+  "generated_at": "2026-03-11",
+  "source": "http://localhost:8001/api/get-logs?page_size=1000&max_rows=5000",
+  "policy": "ideal_expected_labels",
+  "total_logs_scanned": 3072,
+  "total_logs_after_dedup": 348,
+  "total_cases": 100,
+  "cases": [
+    {
+      "id": "H001",
+      "tag": "cong_thuong",
+      "query": "thu tuc xin phep kinh doanh thuoc la",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "cong_thuong",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H002",
+      "tag": "normal",
+      "query": "nôipj  hồ sơ online",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": null,
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H003",
+      "tag": "bao_hiem_an_sinh",
+      "query": "thủ tục xóa hộ nghèo",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "bao_hiem_an_sinh",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H004",
+      "tag": "tu_phap_ho_tich",
+      "query": "mất giấy khai sinh",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H005",
+      "tag": "doanh_nghiep",
+      "query": "cham dut ho kinh doanh nop online duoc khong",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "doanh_nghiep",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H006",
+      "tag": "tu_phap_ho_tich",
+      "query": "thu tuc Thủ tục đăng ký khai sinh có yếu tố nước ngoài tại khu vực biên giới can giay to gi",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H007",
+      "tag": "tu_phap_ho_tich",
+      "query": "cấp lại cccd",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H008",
+      "tag": "tu_phap_ho_tich",
+      "query": "à quên anh hỏi thủ tục xoá tử ak",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H009",
+      "tag": "tu_phap_ho_tich",
+      "query": "mất giấy khai sinh phải làm sao",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H010",
+      "tag": "bao_hiem_an_sinh",
+      "query": "nhà tôi có người nhà neo đơn muốn hưởng trợ cấp",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "bao_hiem_an_sinh",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H011",
+      "tag": "tu_phap_ho_tich",
+      "query": "khai sinh khu vuc bien gioi co yeu to nuoc ngoai can giay to gi",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H012",
+      "tag": "tu_phap_ho_tich",
+      "query": "tôi bị mất giấy khai sinh có đăng ký kết hôn được không?",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H013",
+      "tag": "tu_phap_ho_tich",
+      "query": "le phi Thủ tục đăng ký nhận cha, mẹ, con có yếu tố nước ngoài tại khu vực biên giới la bao nhieu",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H014",
+      "tag": "tu_phap_ho_tich",
+      "query": "xử lý dk ks mất bao lâu",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H015",
+      "tag": "giao_duc_dao_tao",
+      "query": "con tôi vào lớp 1 thì đăng ký nộp hồ sơ ở đâu",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "giao_duc_dao_tao",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H016",
+      "tag": "bao_hiem_an_sinh",
+      "query": "thủ tục xét hộ nghèo",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "bao_hiem_an_sinh",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H017",
+      "tag": "cong_thuong_multi",
+      "query": "thu tuc xin phep kinh doanh thuoc la va can giay to gi",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "cong_thuong",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H018",
+      "tag": "cong_thuong_ambiguous",
+      "query": "thu tuc xin phep kinh doanh thuoc la nhu the nao",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "cong_thuong",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H019",
+      "tag": "cong_thuong_short",
+      "query": "thu tuc xin phep",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "cong_thuong",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H020",
+      "tag": "normal_abbr",
+      "query": "noipj hs online",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": null,
+      "difficulty": "medium",
+      "risk_type": "abbr",
+      "source": "live_log"
+    },
+    {
+      "id": "H021",
+      "tag": "normal_multi",
+      "query": "noipj ho so online va bao lau co ket qua",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": null,
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H022",
+      "tag": "normal_ambiguous",
+      "query": "noipj ho so online la gi",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": null,
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H023",
+      "tag": "normal_short",
+      "query": "noipj ho so",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": null,
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H024",
+      "tag": "bao_hiem_an_sinh_multi",
+      "query": "thu tuc xoa ho ngheo va bao lau co ket qua",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "bao_hiem_an_sinh",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H025",
+      "tag": "bao_hiem_an_sinh_ambiguous",
+      "query": "thu tuc xoa ho ngheo nhu the nao",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "bao_hiem_an_sinh",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H026",
+      "tag": "bao_hiem_an_sinh_short",
+      "query": "thu tuc xoa",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "bao_hiem_an_sinh",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H027",
+      "tag": "tu_phap_ho_tich_multi",
+      "query": "mat giay khai sinh va le phi bao nhieu",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H028",
+      "tag": "tu_phap_ho_tich_ambiguous",
+      "query": "mat giay khai sinh can gi",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H029",
+      "tag": "tu_phap_ho_tich_short",
+      "query": "mat giay khai",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H030",
+      "tag": "doanh_nghiep_multi",
+      "query": "cham dut ho kinh doanh nop online duoc khong va bao lau co ket qua",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "doanh_nghiep",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H031",
+      "tag": "doanh_nghiep_ambiguous",
+      "query": "cham dut ho kinh doanh nop online duoc khong la gi",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "doanh_nghiep",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H032",
+      "tag": "doanh_nghiep_short",
+      "query": "cham dut ho kinh",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "doanh_nghiep",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H033",
+      "tag": "nhan_su",
+      "query": "cho em xin sdt chi thu",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H034",
+      "tag": "nhan_su",
+      "query": "Ai là trưởng khu phố 1 của xã?",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H035",
+      "tag": "chuc_vu",
+      "query": "chi thu giữ chức vụ gì",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H036",
+      "tag": "chuc_vu",
+      "query": "chu tich ubnd xa la ai",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H037",
+      "tag": "nhan_su",
+      "query": "truong khu pho 1 la ai",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H038",
+      "tag": "nhan_su",
+      "query": "võ thị mộng thu là ai?",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H039",
+      "tag": "nhan_su",
+      "query": "đông là ai?",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H040",
+      "tag": "nhan_su",
+      "query": "ông Hiệp là ai á",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H041",
+      "tag": "chuc_vu",
+      "query": "phó chủ tịch là ai",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H042",
+      "tag": "nhan_su",
+      "query": "so dien thoai cua chi thu la gi",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H043",
+      "tag": "chuc_vu",
+      "query": "chủ tịch là ai",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H044",
+      "tag": "nhan_su_multi",
+      "query": "cho em xin sdt chi thu va can giay to gi",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H045",
+      "tag": "nhan_su_ambiguous",
+      "query": "cho em xin sdt chi thu nhu the nao",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H046",
+      "tag": "nhan_su_short",
+      "query": "cho em xin",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H047",
+      "tag": "nhan_su_multi",
+      "query": "ai la truong khu pho 1 cua xa va bao lau co ket qua",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H048",
+      "tag": "nhan_su_ambiguous",
+      "query": "ai la truong khu pho 1 cua xa nhu the nao",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H049",
+      "tag": "nhan_su_short",
+      "query": "ai la truong khu",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H050",
+      "tag": "chuc_vu_multi",
+      "query": "chi thu giu chuc vu gi va can giay to gi",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H051",
+      "tag": "chuc_vu_ambiguous",
+      "query": "chi thu giu chuc vu gi la gi",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H052",
+      "tag": "chuc_vu_short",
+      "query": "chi thu giu",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H053",
+      "tag": "chuc_vu_multi",
+      "query": "chu tich ubnd xa la ai va bao lau co ket qua",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H054",
+      "tag": "chuc_vu_ambiguous",
+      "query": "chu tich ubnd xa la ai la gi",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H055",
+      "tag": "thong_ke",
+      "query": "có mấy khu phố",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_ke",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H056",
+      "tag": "gioi_thieu_dia_phuong",
+      "query": "Xã hiện tại có những đặc điểm gì?",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "gioi_thieu_dia_phuong",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H057",
+      "tag": "thong_tin_lien_he",
+      "query": "duong day nong cua xa",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_tin_lien_he",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H058",
+      "tag": "thong_ke",
+      "query": "dan so xa ba diem hien nay la bao nhieu",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_ke",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H059",
+      "tag": "thong_ke",
+      "query": "xã bà điểm có bao nhiêu khu phố",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_ke",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H060",
+      "tag": "thong_tin_lien_he",
+      "query": "email cua ubnd la gi",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_tin_lien_he",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H061",
+      "tag": "dia_ly",
+      "query": "trung tâm văn hóa của phwung nằm đâu",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "dia_ly",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H062",
+      "tag": "thong_ke",
+      "query": "danh sách lãnh đạo của xã là",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_ke",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H063",
+      "tag": "lich_lam_viec",
+      "query": "cho hỏi lịch làm việc của phường",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "lich_lam_viec",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H064",
+      "tag": "thong_ke",
+      "query": "xa co bao nhieu khu pho",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_ke",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H065",
+      "tag": "thong_ke_multi",
+      "query": "co may khu pho va can giay to gi",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_ke",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H066",
+      "tag": "thong_ke_ambiguous",
+      "query": "co may khu pho nhu the nao",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_ke",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H067",
+      "tag": "thong_ke_short",
+      "query": "co may khu",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_ke",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H068",
+      "tag": "gioi_thieu_dia_phuong_multi",
+      "query": "xa hien tai co nhung dac diem gi va can giay to gi",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "gioi_thieu_dia_phuong",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H069",
+      "tag": "gioi_thieu_dia_phuong_ambiguous",
+      "query": "xa hien tai co nhung dac diem gi la gi",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "gioi_thieu_dia_phuong",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H070",
+      "tag": "gioi_thieu_dia_phuong_short",
+      "query": "xa hien tai co",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "gioi_thieu_dia_phuong",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H071",
+      "tag": "thong_tin_lien_he_multi",
+      "query": "duong day nong cua xa va can giay to gi",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_tin_lien_he",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H072",
+      "tag": "thong_tin_lien_he_ambiguous",
+      "query": "duong day nong cua xa can gi",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_tin_lien_he",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H073",
+      "tag": "thong_tin_lien_he_short",
+      "query": "duong day nong",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_tin_lien_he",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H074",
+      "tag": "thong_ke_multi",
+      "query": "dan so xa ba diem hien nay la bao nhieu va can giay to gi",
+      "expected_category": "thong_tin_tong_quan",
+      "expected_subject": "thong_ke",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H075",
+      "tag": "khieu_nai_to_cao",
+      "query": "tôi muốn khiếu nại cán bộ",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "khieu_nai_to_cao",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H076",
+      "tag": "an_ninh_trat_tu",
+      "query": "hàng xóm karaoke lúc 2h sáng thì tôi khiếu nại lên công an hay uỷ ban",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "an_ninh_trat_tu",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H077",
+      "tag": "an_ninh_trat_tu",
+      "query": "hang xom gay on luc 2h sang toi can phan anh o dau",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "an_ninh_trat_tu",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H078",
+      "tag": "khieu_nai_to_cao",
+      "query": "tôi muốn khiếu nại anh Hiệp vì ko xử lý hồ so cho tôi",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "khieu_nai_to_cao",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H079",
+      "tag": "an_ninh_trat_tu",
+      "query": "hàng xóm hát karaoke lúc 2h sáng, tôi nên báo công an hay uỷ ban",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "an_ninh_trat_tu",
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H080",
+      "tag": "khieu_nai_to_cao_multi",
+      "query": "toi muon khieu nai can bo va nop o dau",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "khieu_nai_to_cao",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H081",
+      "tag": "khieu_nai_to_cao_ambiguous",
+      "query": "toi muon khieu nai can bo nhu the nao",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "khieu_nai_to_cao",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H082",
+      "tag": "khieu_nai_to_cao_short",
+      "query": "toi muon khieu",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "khieu_nai_to_cao",
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H083",
+      "tag": "an_ninh_trat_tu_multi",
+      "query": "hang xom karaoke luc 2h sang thi toi khieu nai len cong an hay uy ban va le phi bao nhieu",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "an_ninh_trat_tu",
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H084",
+      "tag": "an_ninh_trat_tu_ambiguous",
+      "query": "hang xom karaoke luc 2h sang thi toi khieu nai len cong an hay uy ban la gi",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "an_ninh_trat_tu",
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H085",
+      "tag": "normal",
+      "query": "Bạn giúp gì dc cho tôi",
+      "expected_category": "tuong_tac",
+      "expected_subject": null,
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H086",
+      "tag": "normal",
+      "query": "test",
+      "expected_category": "tuong_tac",
+      "expected_subject": null,
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H087",
+      "tag": "normal",
+      "query": "trả lời ngu quá tao muốn chat trực tiếp với cán bộ",
+      "expected_category": "tuong_tac",
+      "expected_subject": null,
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H088",
+      "tag": "normal",
+      "query": "khi nào có phản hồi á",
+      "expected_category": "tuong_tac",
+      "expected_subject": null,
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H089",
+      "tag": "normal_multi",
+      "query": "ban giup gi dc cho toi va nop o dau",
+      "expected_category": "tuong_tac",
+      "expected_subject": null,
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H090",
+      "tag": "normal_ambiguous",
+      "query": "ban giup gi dc cho toi co can khong",
+      "expected_category": "tuong_tac",
+      "expected_subject": null,
+      "difficulty": "hard",
+      "risk_type": "ambiguous",
+      "source": "live_log"
+    },
+    {
+      "id": "H091",
+      "tag": "normal_short",
+      "query": "ban giup gi",
+      "expected_category": "tuong_tac",
+      "expected_subject": null,
+      "difficulty": "hard",
+      "risk_type": "short",
+      "source": "live_log"
+    },
+    {
+      "id": "H092",
+      "tag": "normal_multi",
+      "query": "test va nop o dau",
+      "expected_category": "tuong_tac",
+      "expected_subject": null,
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H093",
+      "tag": "out_of_scope",
+      "query": "thu tuc dang ky tam tru online",
+      "expected_category": null,
+      "expected_subject": null,
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H094",
+      "tag": "qa_need_info",
+      "query": "SĐT của chị Thu",
+      "expected_category": null,
+      "expected_subject": null,
+      "difficulty": "medium",
+      "risk_type": "live_seed",
+      "source": "live_log"
+    },
+    {
+      "id": "H095",
+      "tag": "out_of_scope_abbr",
+      "query": "thu tuc dk tam tru online",
+      "expected_category": null,
+      "expected_subject": null,
+      "difficulty": "medium",
+      "risk_type": "abbr",
+      "source": "live_log"
+    },
+    {
+      "id": "H096",
+      "tag": "out_of_scope_multi",
+      "query": "thu tuc dang ky tam tru online va nop o dau",
+      "expected_category": null,
+      "expected_subject": null,
+      "difficulty": "hard",
+      "risk_type": "multi",
+      "source": "live_log"
+    },
+    {
+      "id": "H097",
+      "tag": "challenge",
+      "query": "dk khai sinh onl can gi va nop o dau",
+      "expected_category": "thu_tuc_hanh_chinh",
+      "expected_subject": "tu_phap_ho_tich",
+      "difficulty": "hard",
+      "risk_type": "abbr_procedure",
+      "source": "crafted_challenge"
+    },
+    {
+      "id": "H098",
+      "tag": "challenge",
+      "query": "khu pho 3 ai dung dau va so dien thoai la bao nhieu",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "nhan_su",
+      "difficulty": "hard",
+      "risk_type": "identity_contact_mix",
+      "source": "crafted_challenge"
+    },
+    {
+      "id": "H099",
+      "tag": "challenge",
+      "query": "khieu nai thai do tiep nhan ho so mot cua",
+      "expected_category": "phan_anh_kien_nghi",
+      "expected_subject": "khieu_nai_to_cao",
+      "difficulty": "hard",
+      "risk_type": "complaint_vs_procedure",
+      "source": "crafted_challenge"
+    },
+    {
+      "id": "H100",
+      "tag": "challenge",
+      "query": "ubnd xa nam o dau va cach lien he pho chu tich",
+      "expected_category": "to_chuc_bo_may",
+      "expected_subject": "chuc_vu",
+      "difficulty": "hard",
+      "risk_type": "general_plus_org_role",
+      "source": "crafted_challenge"
+    }
+  ]
+}
