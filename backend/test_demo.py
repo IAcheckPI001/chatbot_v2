@@ -528,17 +528,17 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
         confidence = 0.85
     
     # 3) Liên hệ cá nhân (phone/contact of a person, not org)
-    elif is_phone_of_person(q_norm):
-        category = "to_chuc_bo_may"
-        subject = "nhan_su"
-        confidence = 0.9
-        signals["person_phone"] = True
+    # elif is_phone_of_person(q_norm):
+    #     category = "to_chuc_bo_may"
+    #     subject = "nhan_su"
+    #     confidence = 0.9
+    #     signals["person_phone"] = True
 
     # 4) Liên hệ tổ chức
-    elif contact_score >= 2:
-        category = "thong_tin_tong_quan"
-        subject = "thong_tin_lien_he"
-        confidence = 0.85
+    # elif contact_score >= 2:
+    #     category = "thong_tin_tong_quan"
+    #     subject = "thong_tin_lien_he"
+    #     confidence = 0.85
 
     elif khu_pho_head_info["matched"]:
         category = "to_chuc_bo_may"
@@ -559,22 +559,23 @@ def classify_v2(q_norm: str, PREPARED: Dict[str, Any]):
     # 6) General info subjects
     else:
 
-        general_subject, general_conf, general_hits = detect_subject_v2(
-            q_norm,
-            GENERAL_PREPARED,
-            min_score=2
-        )
+        # general_subject, general_conf, general_hits = detect_subject_v2(
+        #     q_norm,
+        #     GENERAL_PREPARED,
+        #     min_score=2
+        # )
 
-        if general_subject:
-            category = "thong_tin_tong_quan"
-            subject = general_subject
+        # if general_subject:
+        #     category = "thong_tin_tong_quan"
+        #     subject = general_subject
 
-            confidence = min(0.9, 0.6 + general_conf * 0.4)
+        #     confidence = min(0.9, 0.6 + general_conf * 0.4)
 
-            signals["general_subject_hits"] = general_hits
-        else:
-            need_llm = True
+        #     signals["general_subject_hits"] = general_hits
+        # else:
+        #     need_llm = True
 
+        need_llm = True
     # 5) Khu phố
     # 6) Tổng quan
     # elif tong_quan_score >= 1:

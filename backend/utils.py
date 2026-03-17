@@ -105,7 +105,6 @@ GENERAL_INFO_SUBJECT_KEYWORDS = {
 
 NHAN_SU_INFO_KEYWORDS = [
     "phu trach",
-    "nhan vien",
     "dam nhiem",
     "vai tro",
     "truong khu pho"
@@ -444,6 +443,8 @@ SUBJECT_KEYWORDS = {
         "tài sản công"
     ]
 }
+
+
 
 def prepare_subject_keywords(subject_keywords):
     prepared = {}

@@ -61,7 +61,7 @@ WEAK_TRIGGERS = [
 
 BANNED_KEYWORDS = [
 
-    "sex", "18+", "khiêu dâm",
+    "sex", "khiêu dâm",
     "giết người", "ấu dâm",
     "tình dục", "hiếp dâm",
     "hack ngân hàng", "clip nóng"
@@ -80,7 +80,7 @@ BANNED_KEYWORDS = [
 ]
 
 NORMALIZED_BANNED = [
-    "sex", "18+", "khieu dam",
+    "sex", "khieu dam",
     "giet nguoi", "au dam",
     "tinh duc", "hiep dam",
     "hack ngan hang", "clip nong"
@@ -206,6 +206,23 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"[^\w\s]", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.lower().strip()
+
+def normalize_llm_label(value):
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    if s.lower() in {"none", "null", "unknown", "n/a"}:
+        return None
+    return s
+
+
+def normalize_subject_value(value):
+    # Some classifiers may return a dict like {"subject": "..."}.
+    if isinstance(value, dict):
+        value = value.get("subject")
+    return normalize_llm_label(value)
 
 class AbbreviationResolver:
 

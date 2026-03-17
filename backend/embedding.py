@@ -6,8 +6,11 @@ from model import client
 embedding_cache = {}
 
 def get_proc_embedding(proc):
-    if proc not in embedding_cache:
-        embedding_cache[proc] = get_embedding(proc)
+    if proc not in embedding_cache or embedding_cache[proc] is None:
+        result = get_embedding(proc)
+        if result is not None:
+            embedding_cache[proc] = result
+        return result
     return embedding_cache[proc]
 
 def get_embedding(text: str):
