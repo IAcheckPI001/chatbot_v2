@@ -314,52 +314,52 @@ async function sendMessage() {
   }
 }
 
-async function sendMessageNotStream() {
-  if (!userInput.value.trim()) return
+// async function sendMessageNotStream() {
+//   if (!userInput.value.trim()) return
 
-  const tenantCode = requireSelectedTenant('gửi tin nhắn')
-  if (!tenantCode) return
+//   const tenantCode = requireSelectedTenant('gửi tin nhắn')
+//   if (!tenantCode) return
 
-  const text = userInput.value.trim()
+//   const text = userInput.value.trim()
 
-  messages.value.push({ text, from: 'user' })
-  userInput.value = ''
-  responses.value = []
-  activeSection.value = 'test'
-  const sessionId = getSessionId()
+//   messages.value.push({ text, from: 'user' })
+//   userInput.value = ''
+//   responses.value = []
+//   activeSection.value = 'test'
+//   const sessionId = getSessionId()
 
-  loadingChat.value = true
-  apiError.value = ''
+//   loadingChat.value = true
+//   apiError.value = ''
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: text,
-        session_id: sessionId,
-        tenant_code: tenantCode,
-      })
-    })
+//   try {
+//     const response = await fetch(`${API_BASE_URL}/chat`, {
+//       method: 'POST',
+//       headers: { 'Content-Type': 'application/json' },
+//       body: JSON.stringify({
+//         message: text,
+//         session_id: sessionId,
+//         tenant_code: tenantCode,
+//       })
+//     })
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}))
-      throw new Error(errData.error || `API error: ${response.status}`)
-    }
+//     if (!response.ok) {
+//       const errData = await response.json().catch(() => ({}))
+//       throw new Error(errData.error || `API error: ${response.status}`)
+//     }
 
-    const data = await response.json()
-    const botReply = data.response?.response || 'Không có dữ liệu phản hồi.'
+//     const data = await response.json()
+//     const botReply = data.response?.response || 'Không có dữ liệu phản hồi.'
 
-    messages.value.push({ text: botReply, from: 'bot' })
-    responses.value = data.chunks || []
-  } catch (error: any) {
-    apiError.value = `Connection error: ${error.message}`
-    messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
-  } finally {
-    loadingChat.value = false
-    loadLogs(true)
-  }
-}
+//     messages.value.push({ text: botReply, from: 'bot' })
+//     responses.value = data.chunks || []
+//   } catch (error: any) {
+//     apiError.value = `Connection error: ${error.message}`
+//     messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
+//   } finally {
+//     loadingChat.value = false
+//     loadLogs(true)
+//   }
+// }
 
 // async function sendMessage() {
 //   if (!userInput.value.trim()) return
@@ -760,10 +760,10 @@ const viewLogs = () => {
   loadLogs(false);
 };
 
-const viewChunkRelations = () => {
-  activeSection.value = 'relations'
-  loadChunks(false)
-}
+// const viewChunkRelations = () => {
+//   activeSection.value = 'relations'
+//   loadChunks(false)
+// }
 
 function startEditPrompt(item: any) {
   promptEditingId.value = item.id
