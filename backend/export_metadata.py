@@ -21,8 +21,18 @@ llm = ChatOpenAI(
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
 
-def classify_llm(user_query: str):
-    prompt = f"""Bạn là bộ trích xuất metadata thủ tục hành chính cho chatbot hành chính cấp phường.
+
+def _render_prompt_template(template: str, fallback_prompt: str, **values) -> str:
+    if not template or not isinstance(template, str):
+        return fallback_prompt
+
+    rendered = template
+    for key, value in values.items():
+        rendered = rendered.replace(f"{{{key}}}", "" if value is None else str(value))
+    return rendered
+
+def classify_llm(user_query: str, prompt_template: str = None):
+    default_prompt = f"""Bạn là bộ trích xuất metadata thủ tục hành chính cho chatbot hành chính cấp phường.
 
 NHIỆM VỤ
 Từ câu hỏi của người dùng, trả về DUY NHẤT 1 JSON object hợp lệ theo schema:
@@ -215,6 +225,7 @@ Câu hỏi: "làm khai sinh bình thường và khai sinh có người nước n
 }}
 QUERY: {user_query}
 """
+    prompt = _render_prompt_template(prompt_template, default_prompt, user_query=user_query, query=user_query)
     try:
         response = llm.invoke(prompt)
         raw = response.content.strip()
@@ -462,7 +473,7 @@ QUERY: {user_query}
 
 
 
-def classify_with_tong_quan(query: str):
+def classify_with_tong_quan(query: str, prompt_template: str = None):
 #     prompt = f"""Bạn là bộ tách ý hỏi và gán subject cho chatbot hành chính cấp xã/phường.
 
 # NHIỆM VỤ
@@ -530,7 +541,7 @@ def classify_with_tong_quan(query: str):
 # """
 
 # def classify_with_tong_quan(query: str):
-    prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp xã/phường.
+    default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp xã/phường.
 
 NHIỆM VỤ
 Xác định subject của câu hỏi.
@@ -557,7 +568,6 @@ Câu hỏi: "địa chỉ ubnd, xã nằm ở đâu"
   "subject": "thong_tin_lien_he"
 }}
 
-
 ---
 
 QUY TẮC
@@ -575,12 +585,13 @@ FORMAT
 Câu hỏi:
 "{query}"
 """
+    prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
     try:
         response = llm.invoke(prompt)
         raw = response.content.strip()
 
         data = json.loads(raw)
-        subject = data.get("subject") if data.get("subject") != "" else None
+        subject = data.get("subject")
         return subject
 
     except Exception as e:
@@ -589,8 +600,8 @@ Câu hỏi:
 
 
 
-def classify_with_phan_anh(query: str):
-    prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp xã/phường.
+def classify_with_phan_anh(query: str, prompt_template: str = None):
+    default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp xã/phường.
 
 NHIỆM VỤ
 Xác định xem câu hỏi có thuộc nhóm phản ánh/kiến nghị/khiếu nại/tố cáo hay không.
@@ -656,6 +667,7 @@ Câu hỏi: "bạn tôi bị đuổi ra khỏi nhà giờ thành vô gia cư, gi
 Câu hỏi:
 "{query}"
 """
+    prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
     try:
         response = llm.invoke(prompt)
         raw = response.content.strip()
@@ -663,15 +675,15 @@ Câu hỏi:
         data = json.loads(raw)
 
         print("\nLLM xác đinh:", data)
-        subject = data.get("subject") if data.get("subject") == "" else None
+        subject = data.get("subject")
         return subject
 
     except Exception as e:
         print("LLM classify error:", e)
         return None
 
-def classify_with_tuong_tac(query: str):
-    prompt = f"""Bạn là bộ phân loại tương tác ngắn cho chatbot hành chính cấp xã/phường.
+def classify_with_tuong_tac(query: str, prompt_template: str = None):
+    default_prompt = f"""Bạn là bộ phân loại tương tác ngắn cho chatbot hành chính cấp xã/phường.
 
 NHIỆM VỤ
 Xác định câu người dùng có phải tương tác ngắn/phụ trợ hay không.
@@ -711,6 +723,7 @@ VÍ DỤ
 Câu hỏi:
 "{query}"
 """
+    prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
     try:
         response = llm.invoke(prompt)
         raw = response.content.strip()
@@ -719,7 +732,8 @@ Câu hỏi:
 
         print("\nLLM xác đinh:", data)
 
-        subject = data.get("subject") if data.get("subject") == "" else None
+        subject = data.get("subject")
+
         return subject
 
     except Exception as e:

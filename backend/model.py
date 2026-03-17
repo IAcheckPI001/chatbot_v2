@@ -39,6 +39,16 @@ llm_generate = ChatOpenAI(
 )
 
 
+def _render_prompt_template(template: str, fallback_prompt: str, **values) -> str:
+    if not template or not isinstance(template, str):
+        return fallback_prompt
+
+    rendered = template
+    for key, value in values.items():
+        rendered = rendered.replace(f"{{{key}}}", "" if value is None else str(value))
+    return rendered
+
+
 def detect_query(query: str, context: str) -> str:
     prompt = f"""
 Bạn là bộ phân loại nội dung cho chatbot hành chính cấp phường.
@@ -331,8 +341,8 @@ SUBJECTS = [
 #         return None, None
 
 
-def classify_category(query: str):
-    prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã.
+def classify_category(query: str, prompt_template: str = None):
+    default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã.
 
 NHIỆM VỤ: Xác định category của câu hỏi.
 
@@ -347,7 +357,7 @@ Câu hỏi về quy trình / hồ sơ / đăng ký / cấp giấy / thủ tục 
 
 3. thong_tin_tong_quan  
 - Câu hỏi về thông tin chung của UBND/xã/phường hoặc đơn vị/bộ phận:
-  địa chỉ, trụ sở, giờ làm việc, hotline, email, danh sách khu phố, số lượng khu phố, cơ cấu các bộ phận, thông tin liên hệ của cơ quan hoặc bộ phận.
+  địa chỉ, trụ sở, giờ làm việc, hotline (đường dây nóng), email, danh sách khu phố, số lượng khu phố, cơ cấu các bộ phận, thông tin liên hệ của cơ quan hoặc bộ phận.
 
 4. phan_anh_kien_nghi
 - Câu hỏi dùng để phản ánh, kiến nghị, tố cáo, khiếu nại, báo sự cố, báo vi phạm, đề nghị cơ quan chức năng kiểm tra hoặc xử lý một vấn đề thực tế tại địa phương.
@@ -376,6 +386,7 @@ FORMAT:
 Câu hỏi:
 "{query}"
 """
+    prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
     try:
         response = llm.invoke(prompt)
         raw = response.content.strip()
@@ -895,9 +906,8 @@ Câu hỏi: "{query}"
 #     except:
 #         return query
 
-def rewrite_query(query: str, last_question: str) -> str:
-    prompt = f"""
-Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã.
+def rewrite_query(query: str, last_question: str, prompt_template: str = None) -> str:
+    default_prompt = f"""Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã.
 
 NHIỆM VỤ
 Viết lại câu hỏi hiện tại thành một câu hỏi độc lập, ngắn gọn, giữ nguyên ý nghĩa.
@@ -964,6 +974,12 @@ Câu hiện tại: "cần giấy tờ gì"
 
 Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
 """
+    prompt = _render_prompt_template(
+        prompt_template,
+        default_prompt,
+        query=query,
+        last_question=last_question,
+    )
     try:
         response = llm_rewrite.invoke(prompt)
         return response.content.strip()
@@ -1004,8 +1020,39 @@ Kết quả:
 """
     return prompt
 
-def llm_answer(question: str, context: str) -> str:
-    prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
+def llm_answer_procedure(question: str, context: str, prompt_template: str = None) -> str:
+#     prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
+
+# Hãy trả lời chỉ dựa trên thông tin có trong tài liệu bên dưới.
+# Không thêm quy định, thủ tục, thời hạn, lệ phí hoặc cơ quan xử lý nếu tài liệu không nêu.
+
+# Nếu tài liệu đủ thông tin, hãy trả lời trực tiếp bằng văn phong tự nhiên, rõ ràng.
+# Nếu tài liệu chỉ khớp một phần nhưng vẫn có thể hướng dẫn người dùng, hãy trả lời theo hướng phù hợp nhất và nêu điều kiện ngắn gọn khi cần.
+# Chỉ khi tài liệu hoàn toàn không liên quan mới trả lời đúng nguyên văn:
+# Hiện chưa có thông tin trong hệ thống.
+
+# === TÀI LIỆU ===
+# {context}
+
+# === CÂU HỎI ===
+# {question}
+
+# Yêu cầu:
+# - Trả lời tự nhiên, thân thiện, không quá máy móc.
+# - Luôn mở đầu câu trả lời là "Thưa anh/chị" và kết thúc bằng "Thân mến!" 
+# - Ưu tiên trả lời thẳng vào ý người dùng hỏi.
+# - Không cần luôn mở đầu bằng “Theo tài liệu”.
+# - Chỉ nêu điều kiện khi thật sự cần để tránh hiểu sai.
+# - Nếu tài liệu có nêu hồ sơ, nơi nộp, thời gian giải quyết thì có thể tóm tắt ngắn gọn.
+# - Không bịa thêm thông tin ngoài tài liệu.
+
+# Quy tắc xét duyệt hồ sơ (BẮT BUỘC TUÂN THỦ STRICTLY):
+# - Các mục liệt kê trong phần "Hồ sơ gồm" là điều kiện bắt buộc.
+# - Ký tự "/" hoặc chữ "hoặc" có nghĩa là chỉ cần 1 trong các loại giấy tờ đó.
+# - NẾU người dùng hỏi về việc thiếu/mất một loại giấy tờ, bạn PHẢI trả lời rõ là KHÔNG THỂ thực hiện thủ tục, TRỪ KHI họ có giấy tờ thay thế hợp lệ ghi trong tài liệu.
+# - Ví dụ: Tài liệu ghi "CCCD/Hộ chiếu", nếu người dùng mất CCCD, phải hướng dẫn họ dùng Hộ chiếu thay thế. Nếu không có cả hai, không thể đăng ký.
+# """
+    default_prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
 
 Hãy trả lời chỉ dựa trên thông tin có trong tài liệu bên dưới.
 Không thêm quy định, thủ tục, thời hạn, lệ phí hoặc cơ quan xử lý nếu tài liệu không nêu.
@@ -1021,14 +1068,26 @@ Hiện chưa có thông tin trong hệ thống.
 === CÂU HỎI ===
 {question}
 
-Yêu cầu:
+Yêu cầu nội dung:
 - Trả lời tự nhiên, thân thiện, không quá máy móc.
-- Luôn mở đầu câu trả lời là "Thưa anh/chị" và kết thúc bằng "Thân mến!" 
+- Luôn mở đầu câu trả lời là "Thưa anh/chị," và kết thúc bằng "Thân mến!"
 - Ưu tiên trả lời thẳng vào ý người dùng hỏi.
 - Không cần luôn mở đầu bằng “Theo tài liệu”.
 - Chỉ nêu điều kiện khi thật sự cần để tránh hiểu sai.
 - Nếu tài liệu có nêu hồ sơ, nơi nộp, thời gian giải quyết thì có thể tóm tắt ngắn gọn.
 - Không bịa thêm thông tin ngoài tài liệu.
+
+Yêu cầu trình bày:
+- Trình bày bằng markdown đơn giản, dễ đọc trên giao diện chat.
+- Với câu hỏi ngắn và câu trả lời chỉ có 1 ý chính, trả lời thành 1 đoạn ngắn tự nhiên, không cần chia mục.
+- Nếu câu trả lời có từ 2 ý trở lên, hãy tách thành các đoạn ngắn; mỗi đoạn nên thể hiện 1 ý chính.
+- Ưu tiên câu ngắn, rõ ý; tránh viết 1 đoạn quá dài.
+- Khi có danh sách hồ sơ, giấy tờ, bước thực hiện hoặc lưu ý, hãy dùng bullet list.
+- Có thể in đậm các thông tin quan trọng hoặc các nhãn ngắn như: **Hồ sơ**, **Nơi nộp**, **Hình thức nộp**, **Thời gian giải quyết**, **Lưu ý**.
+- Không lạm dụng tiêu đề lớn hoặc chia quá nhiều mục nhỏ.
+- Chỉ dùng bảng markdown khi người dùng đang hỏi so sánh nhiều thủ tục hoặc nhiều phương án; nếu không, không dùng bảng.
+- Không dùng ký hiệu, biểu tượng hoặc trang trí không cần thiết.
+- Ưu tiên ngắn gọn, rõ ý, nhìn thoáng.
 
 Quy tắc xét duyệt hồ sơ (BẮT BUỘC TUÂN THỦ STRICTLY):
 - Các mục liệt kê trong phần "Hồ sơ gồm" là điều kiện bắt buộc.
@@ -1036,8 +1095,64 @@ Quy tắc xét duyệt hồ sơ (BẮT BUỘC TUÂN THỦ STRICTLY):
 - NẾU người dùng hỏi về việc thiếu/mất một loại giấy tờ, bạn PHẢI trả lời rõ là KHÔNG THỂ thực hiện thủ tục, TRỪ KHI họ có giấy tờ thay thế hợp lệ ghi trong tài liệu.
 - Ví dụ: Tài liệu ghi "CCCD/Hộ chiếu", nếu người dùng mất CCCD, phải hướng dẫn họ dùng Hộ chiếu thay thế. Nếu không có cả hai, không thể đăng ký.
 """
+    prompt = _render_prompt_template(
+        prompt_template,
+        default_prompt,
+        question=question,
+        query=question,
+        context=context,
+    )
     try:
         response = llm_generate.invoke(prompt)
+        print("LLM response:", response.content)
+        return response.content.strip()
+    except:
+        return question
+
+
+def llm_answer(question: str, context: str, prompt_template: str = None) -> str:
+    default_prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
+
+Hãy trả lời chỉ dựa trên thông tin có trong tài liệu bên dưới.
+
+Nếu tài liệu đủ thông tin, hãy trả lời trực tiếp bằng văn phong tự nhiên, rõ ràng.
+Nếu tài liệu chỉ khớp một phần nhưng vẫn có thể hướng dẫn người dùng, hãy trả lời theo hướng phù hợp nhất và nêu điều kiện ngắn gọn khi cần.
+Chỉ khi tài liệu hoàn toàn không liên quan mới trả lời đúng nguyên văn:
+Hiện chưa có thông tin trong hệ thống.
+
+=== TÀI LIỆU ===
+{context}
+
+=== CÂU HỎI ===
+{question}
+
+Yêu cầu nội dung:
+- Trả lời tự nhiên, thân thiện, không quá máy móc.
+- Luôn mở đầu bằng "Thưa anh/chị," và kết thúc bằng "Thân mến!"
+- Ưu tiên trả lời thẳng vào đúng điều người dùng hỏi.
+- Không cần luôn mở đầu bằng “Theo tài liệu”.
+- Chỉ nêu điều kiện khi thật sự cần để tránh hiểu sai.
+- Không bịa thêm thông tin ngoài tài liệu.
+
+Yêu cầu trình bày:
+- Dùng markdown đơn giản, dễ đọc trên giao diện chat.
+- Với câu hỏi ngắn và câu trả lời ngắn, viết thành 1–2 đoạn ngắn tự nhiên.
+- Sau câu "Thưa anh/chị," nên xuống dòng.
+- Khi có từ 2 ý rõ ràng trở lên, có thể tách thành nhiều dòng ngắn.
+- Không lạm dụng tiêu đề lớn hoặc chia quá nhiều mục nhỏ.
+- Không dùng ký hiệu, biểu tượng hoặc trang trí không cần thiết.
+- Ưu tiên ngắn gọn, rõ ý, nhìn thoáng.
+"""
+    prompt = _render_prompt_template(
+        prompt_template,
+        default_prompt,
+        question=question,
+        query=question,
+        context=context,
+    )
+    try:
+        response = llm_generate.invoke(prompt)
+        print("LLM response:", response.content)
         return response.content.strip()
     except:
         return question

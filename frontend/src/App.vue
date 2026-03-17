@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount , watch, nextTick } from 'vue'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const API_BASE_URL = '/api'
 // const API_BASE_URL = 'http://localhost:5000/api'
@@ -13,6 +15,8 @@ const loadingChat = ref(false)
 const apiError = ref('')
 const isCreateModalOpen = ref(false)
 const isCreateChunkModalOpen = ref(false)
+const isCreatePromptModalOpen = ref(false)
+const isEditPromptModalOpen = ref(false)
 const chunkSearch = ref('')
 const showChunkDropdown = ref(false)
 const isDeleteModalOpen = ref(false)
@@ -28,11 +32,37 @@ const originalData = ref<any>(null)
 
 const notedLogs = ref<Set<number>>(new Set())
 const TENANT_STORAGE_KEY = 'selected_tenant_code'
-const DEFAULT_TENANT_CODE = 'xa_ba_diem'
 const NULL_TENANT_CODE = 'thu_tuc_hanh_chinh'
 
 function normalizeTenantCode(value: unknown) {
   return (value ?? '').toString().trim() || NULL_TENANT_CODE
+}
+
+function getStoredTenantCode() {
+  const value = localStorage.getItem(TENANT_STORAGE_KEY)
+  return value?.trim() || null
+}
+
+function requireSelectedTenant(actionLabel: string, showError = true) {
+  const storedTenantCode = getStoredTenantCode()
+
+  if (!selectedTenantCode.value || !storedTenantCode || storedTenantCode !== selectedTenantCode.value) {
+    if (showError) {
+      apiError.value = `Vui lòng chọn tenant trước khi ${actionLabel}`
+    }
+    return null
+  }
+
+  return storedTenantCode
+}
+
+marked.setOptions({
+  breaks: true
+})
+
+function renderMarkdown(text: string) {
+  const rawHtml = marked.parse(text || '') as string
+  return DOMPurify.sanitize(rawHtml)
 }
 
 function toApiTenantCode(value: string | null | undefined) {
@@ -131,12 +161,21 @@ const newAlias = ref({
 })
 
 const newChunk = ref({
-  tenant_code: localStorage.getItem(TENANT_STORAGE_KEY) || DEFAULT_TENANT_CODE,
+  tenant_code: localStorage.getItem(TENANT_STORAGE_KEY),
   scope: 'xa_phuong',
   text_content: '',
   procedure_name: null,
   category: null,
   subject: null,
+})
+
+const newPrompt = ref({
+  prompt_name: '',
+  prompt_type: '',
+  content: '',
+  description: '',
+  version: 1,
+  is_active: true,
 })
 
 function openDeleteModal(id: string) {
@@ -206,6 +245,10 @@ function getSessionId() {
 
 async function sendMessage() {
   if (!userInput.value.trim()) return
+
+  const tenantCode = requireSelectedTenant('gửi tin nhắn')
+  if (!tenantCode) return
+
   const text = userInput.value.trim()
   const sessionId = getSessionId()
   // push user message
@@ -231,7 +274,7 @@ async function sendMessage() {
         session_id: sessionId,
         use_llm: isLLMEnabled.value,
         chunk_limit: chunkLimit.value,
-        tenant_code: toApiTenantCode(selectedTenantCode.value),
+        tenant_code: tenantCode,
       })
     })
 
@@ -262,6 +305,53 @@ async function sendMessage() {
         }
       })
     }
+  } catch (error: any) {
+    apiError.value = `Connection error: ${error.message}`
+    messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
+  } finally {
+    loadingChat.value = false
+    loadLogs(true)
+  }
+}
+
+async function sendMessageNotStream() {
+  if (!userInput.value.trim()) return
+
+  const tenantCode = requireSelectedTenant('gửi tin nhắn')
+  if (!tenantCode) return
+
+  const text = userInput.value.trim()
+
+  messages.value.push({ text, from: 'user' })
+  userInput.value = ''
+  responses.value = []
+  activeSection.value = 'test'
+  const sessionId = getSessionId()
+
+  loadingChat.value = true
+  apiError.value = ''
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text,
+        session_id: sessionId,
+        tenant_code: tenantCode,
+      })
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error || `API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const botReply = data.response?.response || 'Không có dữ liệu phản hồi.'
+
+    messages.value.push({ text: botReply, from: 'bot' })
+    responses.value = data.chunks || []
   } catch (error: any) {
     apiError.value = `Connection error: ${error.message}`
     messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
@@ -323,18 +413,55 @@ const responses = ref<Array<{id: string; text_content: string; confidence_score:
 const chunksData = ref<Array<any>>([])
 const aliasData = ref<Array<any>>([])
 const logsData = ref<Array<any>>([])
+const promptsData = ref<Array<any>>([])
 const categoryFilter = ref<string>('')
 const subjectFilter = ref<string>('')
 const typeLogFilter = ref<string>('')
 const editingId = ref<string | null>(null)
 const editingData = ref<any>(null)
+const promptEditingId = ref<string | null>(null)
+const promptEditingData = ref<any>(null)
 const activeSection = ref("tenants");
 const searchKeyword = ref('')
-const selectedTenantCode = ref(localStorage.getItem(TENANT_STORAGE_KEY) || DEFAULT_TENANT_CODE)
+const selectedTenantCode = ref(localStorage.getItem(TENANT_STORAGE_KEY))
+// const relationSourceChunkId = ref('')
+// const relationSearchKeyword = ref('')
+// const relationSelectedTargetIds = ref<string[]>([])
+// const relationExistingTargetIds = ref<Set<string>>(new Set())
+// const relationLoading = ref(false)
+
+// const relationSourceOptions = computed(() => {
+//   return chunksData.value.filter(item => normalizeTenantCode(item.tenant_code) === selectedTenantCode.value)
+// })
+
+// const relationCandidateChunks = computed(() => {
+//   const keyword = relationSearchKeyword.value.trim().toLowerCase()
+//   return relationSourceOptions.value.filter(item => {
+//     if (item.id === relationSourceChunkId.value) {
+//       return false
+//     }
+
+//     if (!keyword) {
+//       return true
+//     }
+
+//     const content = ((item.procedure_name || item.text_content || '') as string).toLowerCase()
+//     return content.includes(keyword)
+//   })
+// })
+
+// const relationSourcePreview = computed(() => {
+//   return relationSourceOptions.value.find(item => item.id === relationSourceChunkId.value) || null
+// })
 
 watch(selectedTenantCode, (tenantCode) => {
-  localStorage.setItem(TENANT_STORAGE_KEY, tenantCode || DEFAULT_TENANT_CODE)
-  newChunk.value.tenant_code = toApiTenantCode(tenantCode) ?? DEFAULT_TENANT_CODE
+  if (tenantCode) {
+    localStorage.setItem(TENANT_STORAGE_KEY, tenantCode)
+  } else {
+    localStorage.removeItem(TENANT_STORAGE_KEY)
+  }
+
+  newChunk.value.tenant_code = tenantCode
 }, { immediate: true })
 
 const tenantChunkIds = computed(() => {
@@ -350,6 +477,10 @@ const tenantChunkIds = computed(() => {
 })
 
 const filteredChunks = computed(() => {
+  if (!selectedTenantCode.value) {
+    return []
+  }
+
   return chunksData.value.filter(item => {
     const tenantMatch = !selectedTenantCode.value || normalizeTenantCode(item.tenant_code) === selectedTenantCode.value
     const categoryMatch = !categoryFilter.value || item.category === categoryFilter.value
@@ -366,6 +497,10 @@ const filteredChunks = computed(() => {
 })
 
 const filteredAlias = computed(() => {
+  if (!selectedTenantCode.value) {
+    return []
+  }
+
   return aliasData.value.filter(item => {
     const tenantMatch =
       !selectedTenantCode.value ||
@@ -406,8 +541,27 @@ const filteredTenants = computed(() => {
     .sort((a, b) => a.tenant_code.localeCompare(b.tenant_code, 'vi', { sensitivity: 'base' }))
 })
 
+const filteredPrompts = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+
+  return promptsData.value.filter(item => {
+    if (!keyword) return true
+
+    return (
+      (item.prompt_name || '').toLowerCase().includes(keyword) ||
+      (item.prompt_type || '').toLowerCase().includes(keyword) ||
+      (item.content || '').toLowerCase().includes(keyword) ||
+      (item.description || '').toLowerCase().includes(keyword)
+    )
+  })
+})
+
 
 const filteredLog = computed(() => {
+  if (!selectedTenantCode.value) {
+    return []
+  }
+
   return logsData.value.filter(item => {
     const tenantMatch = !selectedTenantCode.value || normalizeTenantCode(item.tenant_code) === selectedTenantCode.value
     const typeLogMatch = !typeLogFilter.value || item.event_type === typeLogFilter.value
@@ -460,6 +614,13 @@ async function loadChunks($load: boolean) {
 async function loadLogs($load: boolean) {
   isLoading.value = true
   apiError.value = ''
+
+  if (!selectedTenantCode.value) {
+    logsData.value = []
+    isLoading.value = false
+    return
+  }
+
   if ($load || logsData.value.length === 0){
     try {
       const params = new URLSearchParams()
@@ -491,6 +652,7 @@ async function loadLogs($load: boolean) {
 async function loadData() {
   loadChunks(false)
   loadAlias(false)
+  loadPrompts(false)
 }
 
 async function loadAlias($load: boolean) {
@@ -519,6 +681,30 @@ async function loadAlias($load: boolean) {
   }
 }
 
+async function loadPrompts($load: boolean) {
+  isLoading.value = true
+  apiError.value = ''
+  if ($load || promptsData.value.length === 0) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/get-prompts`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+      promptsData.value = data.prompts || []
+    } catch (error: any) {
+      apiError.value = `Connection error: ${error.message}`
+    } finally {
+      isLoading.value = false
+    }
+  }
+}
+
 
 const viewChunks = () => {
   activeSection.value = 'chunks';
@@ -534,6 +720,11 @@ const viewTenants = () => {
   activeSection.value = 'tenants';
   loadChunks(false);
 };
+
+const viewPrompts = () => {
+  activeSection.value = 'prompts'
+  loadPrompts(false)
+}
 
 const applyTenant = async (tenantCode: string) => {
   selectedTenantCode.value = tenantCode
@@ -551,7 +742,7 @@ const applyTenant = async (tenantCode: string) => {
 }
 
 const clearTenantSelection = async () => {
-  selectedTenantCode.value = DEFAULT_TENANT_CODE
+  selectedTenantCode.value = null
   responses.value = []
   searchKeyword.value = ''
   typeLogFilter.value = ''
@@ -568,6 +759,326 @@ const viewLogs = () => {
   activeSection.value = 'log';
   loadLogs(false);
 };
+
+const viewChunkRelations = () => {
+  activeSection.value = 'relations'
+  loadChunks(false)
+}
+
+function startEditPrompt(item: any) {
+  promptEditingId.value = item.id
+  promptEditingData.value = {
+    ...item,
+    prompt_type: item.prompt_type ?? '',
+    description: item.description ?? '',
+  }
+  isEditPromptModalOpen.value = true
+}
+
+function cancelEditPrompt() {
+  isEditPromptModalOpen.value = false
+  promptEditingId.value = null
+  promptEditingData.value = null
+}
+
+async function saveEditPrompt() {
+  if (!promptEditingId.value || !promptEditingData.value) return
+
+  isSaving.value = true
+  apiError.value = ''
+  try {
+    const payload = {
+      prompt_name: (promptEditingData.value.prompt_name || '').trim(),
+      prompt_type: (promptEditingData.value.prompt_type || '').trim(),
+      content: (promptEditingData.value.content || '').trim(),
+      description: (promptEditingData.value.description || '').trim() || null,
+      version: Number(promptEditingData.value.version || 1),
+      is_active: Boolean(promptEditingData.value.is_active),
+    }
+
+    if (!payload.prompt_type) {
+      throw new Error('prompt_type không được để trống')
+    }
+
+    const response = await fetch(`${API_BASE_URL}/update-prompt/${promptEditingId.value}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error || `API error: ${response.status}`)
+    }
+
+    await loadPrompts(true)
+    cancelEditPrompt()
+  } catch (error: any) {
+    apiError.value = error.message
+  } finally {
+    isSaving.value = false
+  }
+}
+
+async function submitCreatePrompt() {
+  if (!newPrompt.value.prompt_name?.trim() || !newPrompt.value.prompt_type?.trim() || !newPrompt.value.content?.trim()) {
+    alert('Vui lòng nhập tên prompt, prompt type và nội dung')
+    return
+  }
+
+  isSaving.value = true
+  apiError.value = ''
+  try {
+    const payload = {
+      prompt_name: newPrompt.value.prompt_name.trim(),
+      prompt_type: newPrompt.value.prompt_type.trim(),
+      content: newPrompt.value.content.trim(),
+      description: newPrompt.value.description?.trim() || null,
+      version: Number(newPrompt.value.version || 1),
+      is_active: Boolean(newPrompt.value.is_active),
+    }
+
+    const response = await fetch(`${API_BASE_URL}/create-prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error || `API error: ${response.status}`)
+    }
+
+    await loadPrompts(true)
+    closeCreatePromptModal()
+  } catch (error: any) {
+    apiError.value = error.message
+  } finally {
+    isSaving.value = false
+  }
+}
+
+function closeCreatePromptModal() {
+  isCreatePromptModalOpen.value = false
+  newPrompt.value = {
+    prompt_name: '',
+    prompt_type: '',
+    content: '',
+    description: '',
+    version: 1,
+    is_active: true,
+  }
+}
+
+async function deletePrompt(promptId: string) {
+  if (!confirm('Bạn có chắc chắn muốn xóa prompt này?')) {
+    return
+  }
+
+  isSaving.value = true
+  apiError.value = ''
+  try {
+    const response = await fetch(`${API_BASE_URL}/delete-prompt/${promptId}`, {
+      method: 'DELETE'
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error || `API error: ${response.status}`)
+    }
+
+    await loadPrompts(true)
+  } catch (error: any) {
+    apiError.value = error.message
+  } finally {
+    isSaving.value = false
+  }
+}
+
+async function togglePromptStatus(item: any) {
+  isSaving.value = true
+  apiError.value = ''
+  try {
+    const response = await fetch(`${API_BASE_URL}/toggle-prompt/${item.id}`, {
+      method: 'POST'
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error || `API error: ${response.status}`)
+    }
+
+    await loadPrompts(true)
+  } catch (error: any) {
+    apiError.value = error.message
+  } finally {
+    isSaving.value = false
+  }
+}
+
+async function clonePrompt(item: any) {
+  isSaving.value = true
+  apiError.value = ''
+  try {
+    const payload = {
+      prompt_name: `${item.prompt_name} (Copy)`,
+      prompt_type: item.prompt_type || '',
+      content: item.content || '',
+      description: item.description || null,
+      version: Number(item.version || 1),
+      is_active: false,
+    }
+
+    const response = await fetch(`${API_BASE_URL}/create-prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error || `API error: ${response.status}`)
+    }
+
+    await loadPrompts(true)
+  } catch (error: any) {
+    apiError.value = error.message
+  } finally {
+    isSaving.value = false
+  }
+}
+
+function formatRelativePromptTime(value: string | null | undefined) {
+  if (!value) return ''
+
+  const dt = new Date(value)
+  if (Number.isNaN(dt.getTime())) return ''
+
+  const diffMs = Date.now() - dt.getTime()
+  const minuteMs = 60 * 1000
+  const hourMs = 60 * minuteMs
+  const dayMs = 24 * hourMs
+
+  if (diffMs < hourMs) {
+    const mins = Math.max(1, Math.floor(diffMs / minuteMs))
+    return `Tạo ${mins} phút trước`
+  }
+
+  if (diffMs < dayMs) {
+    const hours = Math.max(1, Math.floor(diffMs / hourMs))
+    return `Tạo ${hours} giờ trước`
+  }
+
+  const days = Math.max(1, Math.floor(diffMs / dayMs))
+  return `Tạo ${days} ngày trước`
+}
+
+// async function loadChunkRelations() {
+//   if (!relationSourceChunkId.value) {
+//     relationSelectedTargetIds.value = []
+//     relationExistingTargetIds.value = new Set()
+//     return
+//   }
+
+//   relationLoading.value = true
+//   apiError.value = ''
+//   try {
+//     const params = new URLSearchParams({ source_chunk_id: relationSourceChunkId.value })
+//     const tenantCode = toApiTenantCode(selectedTenantCode.value)
+//     if (tenantCode) {
+//       params.set('tenant_code', tenantCode)
+//     }
+
+//     const response = await fetch(`${API_BASE_URL}/chunk-relations?${params.toString()}`, {
+//       method: 'GET',
+//       headers: { 'Content-Type': 'application/json' }
+//     })
+
+//     if (!response.ok) {
+//       throw new Error(`API error: ${response.status}`)
+//     }
+
+//     const data = await response.json()
+//     const targetIds: string[] = (data.relations || [])
+//       .map((item: any) => item.target_chunk_id)
+//       .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+//     relationExistingTargetIds.value = new Set(targetIds)
+//     relationSelectedTargetIds.value = [...new Set(targetIds)]
+//   } catch (error: any) {
+//     apiError.value = `Connection error: ${error.message}`
+//   } finally {
+//     relationLoading.value = false
+//   }
+// }
+
+// function toggleRelationTarget(targetId: string) {
+//   const selected = relationSelectedTargetIds.value
+//   if (selected.includes(targetId)) {
+//     relationSelectedTargetIds.value = selected.filter(id => id !== targetId)
+//     return
+//   }
+//   relationSelectedTargetIds.value = [...selected, targetId]
+// }
+
+// async function saveChunkRelations() {
+//   if (!relationSourceChunkId.value) {
+//     alert('Vui lòng chọn chunk nguồn')
+//     return
+//   }
+
+//   const existing = relationExistingTargetIds.value
+//   const selected = new Set(relationSelectedTargetIds.value)
+//   const toCreate = [...selected].filter(id => !existing.has(id))
+//   const toDelete = [...existing].filter(id => !selected.has(id))
+
+//   if (toCreate.length === 0 && toDelete.length === 0) {
+//     alert('Không có thay đổi để lưu')
+//     return
+//   }
+
+//   relationLoading.value = true
+//   apiError.value = ''
+//   const tenantCode = toApiTenantCode(selectedTenantCode.value)
+
+//   try {
+//     if (toCreate.length > 0) {
+//       const createRes = await fetch(`${API_BASE_URL}/chunk-relations/bulk-create`, {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/json' },
+//         body: JSON.stringify({
+//           source_chunk_id: relationSourceChunkId.value,
+//           tenant_code: tenantCode,
+//           target_chunk_ids: toCreate,
+//         })
+//       })
+//       if (!createRes.ok) {
+//         throw new Error(`Create relations failed: ${createRes.status}`)
+//       }
+//     }
+
+//     if (toDelete.length > 0) {
+//       const deleteRes = await fetch(`${API_BASE_URL}/chunk-relations/bulk-delete`, {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/json' },
+//         body: JSON.stringify({
+//           source_chunk_id: relationSourceChunkId.value,
+//           tenant_code: tenantCode,
+//           target_chunk_ids: toDelete,
+//         })
+//       })
+//       if (!deleteRes.ok) {
+//         throw new Error(`Delete relations failed: ${deleteRes.status}`)
+//       }
+//     }
+
+//     await loadChunkRelations()
+//     alert('Đã cập nhật liên kết chunk')
+//   } catch (error: any) {
+//     apiError.value = error.message
+//   } finally {
+//     relationLoading.value = false
+//   }
+// }
 
 function startEdit(item: any) {
   originalData.value = { ...item }
@@ -691,12 +1202,15 @@ async function submitCreateChunk() {
     return
   }
 
+  const tenantCode = requireSelectedTenant('tạo chunk')
+  if (!tenantCode) return
+
   isSaving.value = true
 
   try {
     const payload = {
       ...newChunk.value,
-      tenant_code: newChunk.value.scope === 'quoc_gia' ? null : newChunk.value.tenant_code,
+      tenant_code: newChunk.value.scope === 'quoc_gia' ? null : tenantCode,
     }
 
     const response = await fetch(`${API_BASE_URL}/create-chunk`, {
@@ -725,7 +1239,7 @@ function closeCreateModalChunk() {
   isCreateChunkModalOpen.value = false
   chunkSearch.value = ''
   newChunk.value = {
-    tenant_code: localStorage.getItem(TENANT_STORAGE_KEY) || DEFAULT_TENANT_CODE,
+    tenant_code: localStorage.getItem(TENANT_STORAGE_KEY),
     scope: 'xa_phuong',
     text_content: '',
     procedure_name: null,
@@ -871,6 +1385,13 @@ onBeforeUnmount(() => {
 
 async function loadHistory(){
   try {
+    const tenantCode = requireSelectedTenant('tải lịch sử hội thoại', false)
+    if (!tenantCode) {
+      messages.value = [
+        { text: 'Xin chào! Tôi là trợ lý AI của UBND Phường.', from: 'bot' }
+      ]
+      return
+    }
 
     const sessionId = localStorage.getItem("chat_session_id")
     if (!sessionId) {
@@ -882,7 +1403,7 @@ async function loadHistory(){
     const response = await fetch(`${API_BASE_URL}/load-history`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, tenant_code: toApiTenantCode(selectedTenantCode.value) })
+      body: JSON.stringify({ session_id: sessionId, tenant_code: tenantCode })
     })
     
     if (!response.ok) {
@@ -1007,6 +1528,16 @@ function stopDrag() {
           :class="{ active: activeSection === 'tenants' }"
           @click="viewTenants()"
         >Danh sách tenants</div>
+        <div
+          class="menu-item"
+          :class="{ active: activeSection === 'prompts' }"
+          @click="viewPrompts()"
+        >System Prompt</div>
+        <!-- <div
+          class="menu-item"
+          :class="{ active: activeSection === 'relations' }"
+          @click="viewChunkRelations()"
+        >Liên kết chunk</div> -->
         <div class="menu-section">Kiểm thử</div>
         <div 
           class="menu-item" 
@@ -1085,7 +1616,7 @@ function stopDrag() {
           type="text" 
           placeholder="Tìm kiếm alias text..." 
         />
-        <button class="btn-create" @click="isCreateModalOpen = true" style="display: flex;">
+        <button class="btn-create" @click="isCreateModalOpen = true" style="display: flex;" :disabled="!selectedTenantCode">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus w-4 h-4"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
           <span style="font-size: 0.95em; margin-top: 2.2px; margin-left: 10px;">Tạo alias</span>
         </button>
@@ -1206,6 +1737,139 @@ function stopDrag() {
         </table>
       </div>
     </section>
+
+    <section class="data-chunks-table" v-if="activeSection === 'prompts'" :class="{ 'with-chat': isOpen }">
+      <div class="search-box">
+        <input
+          v-model="searchKeyword"
+          type="text" 
+          placeholder="Tìm kiếm prompt..."
+        />
+        <button class="btn-create" @click="isCreatePromptModalOpen = true" style="display: flex;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus w-4 h-4"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+          <span style="font-size: 0.95em; margin-top: 2.2px; margin-left: 10px;">Tạo prompt</span>
+        </button>
+      </div>
+      <div class="filter-result">Tìm thấy {{ filteredPrompts.length }} / {{ promptsData.length }} kết quả</div>
+      <div class="prompt-cards">
+        <div v-if="filteredPrompts.length === 0" class="prompt-empty">
+          {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
+        </div>
+
+        <article v-for="item in filteredPrompts" :key="item.id" class="prompt-card">
+          <div class="prompt-card-head">
+            <div class="prompt-title-wrap">
+              <h3 class="prompt-title">{{ item.prompt_name }}</h3>
+              <span class="prompt-chip">v{{ item.version }}</span>
+              <span class="prompt-chip prompt-chip-muted">{{ item.prompt_type || 'untyped' }}</span>
+            </div>
+
+            <button class="prompt-toggle" :class="{ active: item.is_active }" @click="togglePromptStatus(item)" :disabled="isSaving">
+              <span class="prompt-toggle-knob"></span>
+            </button>
+          </div>
+
+          <div class="prompt-card-body">
+            <p class="prompt-content-text">{{ item.content }}</p>
+          </div>
+
+          <div class="prompt-card-foot">
+            <div class="prompt-time">{{ formatRelativePromptTime(item.created_at) }}</div>
+            <div class="prompt-actions">
+              <button class="prompt-action-btn" @click="startEditPrompt(item)">Sửa</button>
+              <button class="prompt-action-btn" @click="clonePrompt(item)">Nhân bản</button>
+              <button class="prompt-action-btn prompt-action-btn-danger" @click="deletePrompt(item.id)">Xóa</button>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+<!-- 
+    <section class="data-chunks-table" v-if="activeSection === 'relations'" :class="{ 'with-chat': isOpen }">
+      <div class="search-box" style="display: flex; gap: 12px; align-items: center;">
+        <select
+          v-model="relationSourceChunkId"
+          class="filter-select"
+          style="max-width: 520px;"
+          @change="loadChunkRelations"
+        >
+          <option value="">Chọn chunk nguồn...</option>
+          <option
+            v-for="chunk in relationSourceOptions"
+            :key="chunk.id"
+            :value="chunk.id"
+          >
+            {{ (chunk.procedure_name || chunk.text_content || '').slice(0, 120) }}
+          </option>
+        </select>
+
+        <input
+          v-model="relationSearchKeyword"
+          type="text"
+          placeholder="Lọc chunk đích theo nội dung..."
+          style="max-width: 420px;"
+        />
+
+        <button
+          class="btn-create"
+          @click="saveChunkRelations"
+          :disabled="relationLoading || !relationSourceChunkId"
+        >
+          {{ relationLoading ? 'Đang lưu...' : 'Lưu liên kết' }}
+        </button>
+      </div>
+
+      <div class="filter-result">
+        Nguồn: {{ relationSourcePreview ? (relationSourcePreview.procedure_name || relationSourcePreview.text_content || '').slice(0, 100) : 'Chưa chọn' }}
+      </div>
+
+      <div class="filter-result" style="background: #f8fafc; color: #334155;">
+        Đã chọn {{ relationSelectedTargetIds.length }} chunk đích.
+      </div>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th class="col-index">Chọn</th>
+              <th class="col-index">STT</th>
+              <th class="col-content">Chunk đích</th>
+              <th class="col-index">Đang liên kết</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr v-if="!relationSourceChunkId">
+              <td colspan="4" style="text-align: center; padding: 20px; color: #999;">
+                Vui lòng chọn chunk nguồn để quản lý liên kết.
+              </td>
+            </tr>
+            <tr v-else-if="relationCandidateChunks.length === 0">
+              <td colspan="4" style="text-align: center; padding: 20px; color: #999;">
+                Không có chunk đích phù hợp.
+              </td>
+            </tr>
+            <tr v-for="(item, idx) in relationCandidateChunks" :key="item.id">
+              <td class="col-index">
+                <input
+                  type="checkbox"
+                  :checked="relationSelectedTargetIds.includes(item.id)"
+                  @change="toggleRelationTarget(item.id)"
+                />
+              </td>
+              <td class="col-index">{{ idx + 1 }}</td>
+              <td class="col-content">
+                <div class="content-text">{{ item.procedure_name || item.text_content }}</div>
+              </td>
+              <td class="col-index">
+                <span v-if="relationExistingTargetIds.has(item.id)">Yes</span>
+                <span v-else>-</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section> -->
 
     <section class="data-chunks-table" v-if="activeSection === 'log'" :class="{ 'with-chat': isOpen }">
       <!-- Search -->
@@ -1335,7 +1999,7 @@ function stopDrag() {
           type="text" 
           placeholder="Tìm kiếm nội dung..." 
         />
-        <button class="btn-create" @click="isCreateChunkModalOpen = true" style="display: flex;">
+        <button class="btn-create" @click="isCreateChunkModalOpen = true" style="display: flex;" :disabled="!selectedTenantCode">
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus w-4 h-4"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
           <span style="font-size: 0.95em; margin-top: 2.2px; margin-left: 10px;">Tạo chunk</span>
         </button>
@@ -1639,7 +2303,10 @@ function stopDrag() {
           :key="idx" 
           :class="msg.from + '-message'"
         >
-          {{ msg.text }}
+          <div
+            class="message-markdown"
+            v-html="renderMarkdown(msg.text)"
+          ></div>
         </div>
       </div>
 
@@ -1647,10 +2314,11 @@ function stopDrag() {
       <div class="chat-footer">
         <input
           v-model="userInput"
-          placeholder="Nhập câu hỏi của bạn..."
+          :disabled="!selectedTenantCode"
+          :placeholder="selectedTenantCode ? 'Nhập câu hỏi của bạn...' : 'Chọn tenant để bắt đầu thao tác'"
           @keyup.enter="sendMessage"
         />
-        <button @click="sendMessage" :disabled="loadingChat">{{ loadingChat ? '⏳' : '➤' }}</button>
+        <button @click="sendMessage" :disabled="loadingChat || !selectedTenantCode">{{ loadingChat ? '⏳' : '➤' }}</button>
       </div>
     </div>
     <!-- Create Alias Modal -->
@@ -1778,6 +2446,73 @@ function stopDrag() {
           <button class="btn-cancel" @click="closeCreateModalChunk">Hủy</button>
         </div>
 
+      </div>
+    </div>
+
+    <div v-if="isCreatePromptModalOpen" class="modal-overlay">
+      <div class="modal-box">
+        <h3>Tạo Prompt Mới</h3>
+
+        <label>Prompt name</label>
+        <input v-model="newPrompt.prompt_name" class="edit-input" />
+
+        <label>Prompt type</label>
+        <input v-model="newPrompt.prompt_type" class="edit-input" placeholder="vd: history_rewrite" />
+
+        <label>Content</label>
+        <textarea v-model="newPrompt.content" class="edit-input" rows="8"></textarea>
+
+        <label>Description</label>
+        <textarea v-model="newPrompt.description" class="edit-input" rows="3"></textarea>
+
+        <div class="filter-group" style="padding: 0; background: transparent; border: 0;">
+          <label style="min-width: 70px;">Version</label>
+          <input v-model.number="newPrompt.version" class="edit-input" type="number" min="1" style="max-width: 120px;" />
+          <label style="min-width: 80px;">Active</label>
+          <input v-model="newPrompt.is_active" type="checkbox" />
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn-save" @click="submitCreatePrompt" :disabled="isSaving">💾 Lưu</button>
+          <button class="btn-cancel" @click="closeCreatePromptModal">Hủy</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="isEditPromptModalOpen" class="modal-overlay">
+      <div class="modal-box prompt-edit-modal">
+        <h3>Chỉnh sửa Prompt</h3>
+
+        <label>Tên prompt</label>
+        <input v-model="promptEditingData.prompt_name" class="edit-input" />
+
+        <label>Prompt type</label>
+        <input v-model="promptEditingData.prompt_type" class="edit-input" placeholder="vd: answer_QA" />
+
+        <div class="prompt-edit-row">
+          <div class="prompt-edit-col">
+            <label>Version</label>
+            <input v-model.number="promptEditingData.version" class="edit-input" type="number" min="1" />
+          </div>
+          <div class="prompt-edit-col">
+            <label>Trạng thái</label>
+            <div class="prompt-edit-switch-row">
+              <input v-model="promptEditingData.is_active" type="checkbox" />
+              <span>{{ promptEditingData.is_active ? 'Đang bật' : 'Đang tắt' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <label>Nội dung prompt</label>
+        <textarea v-model="promptEditingData.content" class="edit-input" rows="10"></textarea>
+
+        <label>Mô tả</label>
+        <textarea v-model="promptEditingData.description" class="edit-input" rows="3"></textarea>
+
+        <div class="modal-actions">
+          <button class="btn-save" @click="saveEditPrompt" :disabled="isSaving">💾 Lưu</button>
+          <button class="btn-cancel" @click="cancelEditPrompt">Hủy</button>
+        </div>
       </div>
     </div>
     <!-- Delete Confirm Modal -->
@@ -2079,7 +2814,7 @@ body{
   position: fixed;
   bottom: 8px;
   left: 16px;
-  width: 380px;
+  width: 420px;
   height: 520px;
   background: #f3f4f6;
   border-radius: 18px;
@@ -2133,12 +2868,14 @@ body{
 }
 
 .bot-message, .user-message {
-  padding: 12px 14px;
+  padding: 0px 16px;
   margin: 6px 0;
   border-radius: 14px;
   max-width: 80%;
   font-size: 1em;
   box-shadow: 0 3px 8px rgba(0,0,0,0.05);
+  white-space: normal;
+  font-family: "ui-sans-serif", "-apple-system", "system-ui", "Segoe UI", "Helvetica", "Apple Color Emoji", "Arial", "sans-serif", "Segoe UI Emoji", "Segoe UI Symbol";
 }
 
 .bot-message {
@@ -2778,5 +3515,273 @@ textarea.edit-input {
 
 .btn-note:hover {
   transform: scale(1.2);
+}
+
+.message-markdown {
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.message-markdown p {
+  margin: 0 0 10px;
+}
+
+.message-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.message-markdown ul,
+.message-markdown ol {
+  margin: 8px 0 8px 20px;
+  padding: 0;
+}
+
+.message-markdown li {
+  margin: 4px 0;
+}
+
+.message-markdown strong {
+  font-weight: 600;
+}
+
+.message-markdown em {
+  font-style: italic;
+}
+
+.message-markdown h1,
+.message-markdown h2,
+.message-markdown h3,
+.message-markdown h4 {
+  margin: 10px 0 8px;
+  font-size: 1em;
+  font-weight: 700;
+}
+
+.message-markdown code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 0.95em;
+}
+
+.message-markdown pre {
+  background: #f6f8fa;
+  padding: 10px 12px;
+  border-radius: 10px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.message-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.message-markdown blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid #d1d5db;
+  color: #4b5563;
+}
+
+.message-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 0.95em;
+}
+
+.message-markdown th,
+.message-markdown td {
+  border: 1px solid #e5e7eb;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.message-markdown th {
+  background: #f9fafb;
+}
+
+.prompt-cards {
+  padding: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 25px;
+}
+
+.prompt-empty {
+  text-align: center;
+  color: #6b7280;
+  padding: 24px;
+}
+
+.prompt-card {
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  background: #f9fafb;
+  padding: 16px 20px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  margin: 1px 59px;
+  padding: 33px 39px;
+}
+
+.prompt-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.prompt-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.prompt-title {
+  font-size: 1.4em;
+  font-weight: 700;
+  margin: 0;
+  color: #111827;
+}
+
+.prompt-chip {
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 1em;
+  font-weight: 600;
+}
+
+.prompt-chip-muted {
+  background: #e5e7eb;
+  color: #4b5563;
+}
+
+.prompt-card-body {
+  margin-top: 12px;
+}
+
+.prompt-content-text {
+  margin: 0;
+  color: #374151;
+  font-size: 1.2em;
+  line-height: 1.55;
+  white-space: normal;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding-right: 110px;
+}
+
+.prompt-card-desc {
+  margin-top: 10px;
+}
+
+.prompt-desc-text {
+  margin: 0;
+  color: #6b7280;
+  font-size: 1.05em;
+}
+
+.prompt-card-foot {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.prompt-edit-modal {
+  width: min(860px, 92vw);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.prompt-edit-row {
+  display: flex;
+  gap: 12px;
+}
+
+.prompt-edit-col {
+  flex: 1;
+}
+
+.prompt-edit-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+}
+
+.prompt-time {
+  color: #6b7280;
+  font-size: 1em;
+}
+
+.prompt-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.prompt-action-btn {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #111827;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+.prompt-action-btn:hover {
+  background: #f3f4f6;
+}
+
+.prompt-action-btn-danger {
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.prompt-toggle {
+  width: 56px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: #d1d5db;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.prompt-toggle.active {
+  background: #16a34a;
+}
+
+.prompt-toggle-knob {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #ffffff;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.prompt-toggle.active .prompt-toggle-knob {
+  transform: translateX(24px);
 }
 </style>

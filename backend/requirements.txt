@@ -7,3 +7,4 @@ gunicorn
 gevent
 numpy
 langchain-openai==0.1.25
+redis[hiredis]>=5.0.0,<6.0.0
