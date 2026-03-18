@@ -32,7 +32,7 @@ const originalData = ref<any>(null)
 
 const notedLogs = ref<Set<number>>(new Set())
 const TENANT_STORAGE_KEY = 'selected_tenant_code'
-const NULL_TENANT_CODE = 'thu_tuc_hanh_chinh'
+const NULL_TENANT_CODE = 'quoc_gia'
 
 function normalizeTenantCode(value: unknown) {
   return (value ?? '').toString().trim() || NULL_TENANT_CODE
@@ -414,6 +414,7 @@ const chunksData = ref<Array<any>>([])
 const aliasData = ref<Array<any>>([])
 const logsData = ref<Array<any>>([])
 const promptsData = ref<Array<any>>([])
+const tenantsData = ref<Array<any>>([])
 const categoryFilter = ref<string>('')
 const subjectFilter = ref<string>('')
 const typeLogFilter = ref<string>('')
@@ -653,6 +654,7 @@ async function loadData() {
   loadChunks(false)
   loadAlias(false)
   loadPrompts(false)
+  loadTenants(false)
 }
 
 async function loadAlias($load: boolean) {
@@ -705,6 +707,26 @@ async function loadPrompts($load: boolean) {
   }
 }
 
+async function loadTenants($load: boolean) {
+  if ($load || tenantsData.value.length === 0){
+    try {
+      const response = await fetch(`${API_BASE_URL}/get-tenants`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      tenantsData.value = data.tenants || []
+    } catch (error: any) {
+      apiError.value = `Connection error: ${error.message}`
+    }
+  }
+}
+
 
 const viewChunks = () => {
   activeSection.value = 'chunks';
@@ -737,6 +759,7 @@ const applyTenant = async (tenantCode: string) => {
     loadChunks(true),
     loadAlias(true),
     loadLogs(true),
+    loadTenants(true),
     loadHistory(),
   ])
 }
@@ -1208,9 +1231,23 @@ async function submitCreateChunk() {
   isSaving.value = true
 
   try {
+    let finalTenantCode = tenantCode
+
+    // Nếu chọn scope tinh_thanh, check xem tenant hiện tại có parent_id không
+    if (newChunk.value.scope === 'tinh_thanh') {
+      const currentTenant = tenantsData.value.find(t => t.tenant_code === tenantCode)
+      if (currentTenant && currentTenant.parent_id) {
+        // Tìm parent tenant để lấy parent_tenant_code
+        const parentTenant = tenantsData.value.find(t => t.id === currentTenant.parent_id)
+        if (parentTenant && parentTenant.tenant_code) {
+          finalTenantCode = parentTenant.tenant_code
+        }
+      }
+    }
+
     const payload = {
       ...newChunk.value,
-      tenant_code: newChunk.value.scope === 'quoc_gia' ? null : tenantCode,
+      tenant_code: newChunk.value.scope === 'quoc_gia' ? null : finalTenantCode,
     }
 
     const response = await fetch(`${API_BASE_URL}/create-chunk`, {

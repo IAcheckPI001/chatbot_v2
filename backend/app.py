@@ -21,6 +21,8 @@ from utils import SUBJECT_KEYWORDS, GENERAL_INFO_SUBJECT_KEYWORDS, classify, pre
 from export_metadata import classify_llm, classify_with_tong_quan, classify_with_phan_anh, classify_with_tuong_tac
 from cache_backend import create_cache_backend
 
+from scope_detect import extract_scope
+
 PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
 
 load_dotenv()
@@ -1087,6 +1089,23 @@ def get_alias():
         }), 500
 
 
+@app.route('/api/get-tenants', methods=['GET'])
+def get_tenants():
+    try:
+        response = supabase.table("tenants") \
+            .select("id, tenant_code, scope, parent_id") \
+            .order("tenant_code") \
+            .execute()
+
+        return jsonify({
+            "tenants": response.data or []
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+
 @app.route('/api/get-prompts', methods=['GET'])
 def get_prompts():
     try:
@@ -1900,6 +1919,22 @@ def chat_stream():
         result = resolver.process(user_message)
         user_message = result["expanded"]
         normalized_query = result["normalized"]
+
+        scope = extract_scope(user_message)
+
+        response = supabase.rpc(
+            "resolve_target_tenant_code",
+            {
+                "p_current_tenant_code": tenant_code,
+                "p_target_scope": scope
+            }
+        ).execute()
+
+        tenant_code = response.data
+
+        yield f"data: {json.dumps({'log': f'=> Xác định scope: {scope}'})}\n\n"
+        yield f"data: {json.dumps({'log': f'=> Tenant code tham vấn: {tenant_code}'})}\n\n"
+
         yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
         # normalized_query = normalize_text(q)
         yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
@@ -2189,6 +2224,8 @@ def chat_stream():
             p_limit=5,
             tenant=tenant_code
         )
+
+        print(f"Initial chunks: {chunks}")
         
         if subject in ["chuc_vu", "nhan_su"]:
             yield f"data: {json.dumps({'log': f'Kiểm tra nội dung subject là None'})}\n\n"
