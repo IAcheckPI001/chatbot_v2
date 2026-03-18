@@ -32,6 +32,19 @@ client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
 )
 
+def _require_api_key():
+    """
+    Optional API key guard for sensitive endpoints.
+    If TENANT_SYNC_API_KEY is not set, the endpoint is open (backward-compatible).
+    """
+    expected = (os.getenv("TENANT_SYNC_API_KEY") or "").strip()
+    if not expected:
+        return None
+    provided = (request.headers.get("X-API-KEY") or "").strip()
+    if provided != expected:
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
+
 def _to_bool(value, default=False):
     if value is None:
         return default
@@ -220,6 +233,109 @@ def tenant_exists(tenant_code: str) -> bool:
         .execute()
 
     return bool(response.data)
+
+
+def tenant_exists_by_id(tenant_id: str) -> bool:
+    if tenant_id is None:
+        return False
+    response = (
+        supabase.table("tenants")
+        .select("id")
+        .eq("id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    return bool(response.data)
+
+
+@app.route('/api/tenants', methods=['POST'])
+def v2_create_tenant():
+    """
+    API tạo tenant record trong Supabase khi hệ thống chính tạo portal mới.
+
+    Payload (JSON):
+      - tenant_id: (required) numeric id từ hệ thống chính
+      - tenant_code: (required) mã tenant dùng trong chatbot (ví dụ domain slug)
+      - name: (optional)
+    """
+    auth_err = _require_api_key()
+    if auth_err:
+        return auth_err
+
+    data, err = _require_json_object()
+    if err:
+        return err
+
+    tenant_id = normalize_tenant_id(data.get("tenant_id"))
+    tenant_code = normalize_tenant_code(data.get("tenant_code"))
+    name = (data.get("name") or "").strip() or None
+
+    if not tenant_id:
+        return jsonify({"error": "tenant_id is required"}), 400
+    if not tenant_code:
+        return jsonify({"error": "tenant_code is required"}), 400
+
+    # Guard: nếu tenant_code đã tồn tại nhưng trỏ sang id khác => conflict
+    try:
+        existing_by_code = (
+            supabase.table("tenants")
+            .select("id, tenant_code")
+            .eq("tenant_code", tenant_code)
+            .limit(1)
+            .execute()
+        )
+        row_code = (existing_by_code.data or [None])[0] if isinstance(existing_by_code.data, list) else existing_by_code.data
+        if isinstance(row_code, dict) and row_code.get("id") and str(row_code.get("id")) != str(tenant_id):
+            return jsonify({
+                "error": "tenant_code already exists with different tenant_id",
+                "existing_tenant_id": row_code.get("id"),
+            }), 409
+
+        # Nếu đã có theo id => update best-effort; nếu không => insert
+        if tenant_exists_by_id(tenant_id):
+            patch = {"tenant_code": tenant_code}
+            if name is not None:
+                patch["name"] = name
+
+            try:
+                res = (
+                    supabase.table("tenants")
+                    .update(patch)
+                    .eq("id", tenant_id)
+                    .execute()
+                )
+            except Exception as e:
+                # Nếu schema không có cột name thì retry không có name
+                if "Could not find the 'name' column" in str(e) and "name" in patch:
+                    patch.pop("name", None)
+                    res = (
+                        supabase.table("tenants")
+                        .update(patch)
+                        .eq("id", tenant_id)
+                        .execute()
+                    )
+                else:
+                    raise
+            updated = (res.data or [None])[0] if isinstance(res.data, list) else res.data
+            return jsonify({"data": updated or patch, "action": "updated"}), 200
+
+        payload = {"id": tenant_id, "tenant_code": tenant_code}
+        if name is not None:
+            payload["name"] = name
+
+        try:
+            res = supabase.table("tenants").insert(payload).execute()
+        except Exception as e:
+            # Nếu schema không có cột name thì retry không có name
+            if "Could not find the 'name' column" in str(e) and "name" in payload:
+                payload.pop("name", None)
+                res = supabase.table("tenants").insert(payload).execute()
+            else:
+                raise
+        created = (res.data or [None])[0] if isinstance(res.data, list) else res.data
+        return jsonify({"data": created or payload, "action": "created"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def get_embedding_cached(user_text: str):
