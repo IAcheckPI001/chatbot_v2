@@ -117,6 +117,14 @@ _detect_query_cache = "detect_query"
 _search_v6_cache = "search_v6"
 _related_chunks_cache = "related_chunks"
 _prompt_templates_cache = "prompt_templates"
+_resolve_tenant_cache = "resolve_tenant"
+_classify_v2_cache = "classify_v2"
+_classify_tuong_tac_cache = "classify_tuong_tac"
+_classify_phan_anh_cache = "classify_phan_anh"
+_classify_tong_quan_cache = "classify_tong_quan"
+_classify_llm_procedure_cache = "classify_llm_procedure"
+_CACHE_MISS = object()
+_NULL_SENTINEL = "__CACHE_NULL_SENTINEL__"
 
 EMBEDDING_CACHE_TTL = 30 * 60
 LLM_CLASSIFY_CACHE_TTL = 10 * 60
@@ -124,6 +132,12 @@ DETECT_QUERY_CACHE_TTL = 5 * 60
 SEARCH_V6_CACHE_TTL = 60
 RELATED_CHUNKS_CACHE_TTL = 120
 PROMPT_TEMPLATES_CACHE_TTL = 60
+RESOLVE_TENANT_CACHE_TTL = 10 * 60
+CLASSIFY_V2_CACHE_TTL = 10 * 60
+CLASSIFY_TUONG_TAC_CACHE_TTL = 5 * 60
+CLASSIFY_PHAN_ANH_CACHE_TTL = 5 * 60
+CLASSIFY_TONG_QUAN_CACHE_TTL = 5 * 60
+CLASSIFY_LLM_PROCEDURE_CACHE_TTL = 10 * 60
 
 EMBEDDING_CACHE_MAX = 2000
 LLM_CLASSIFY_CACHE_MAX = 1000
@@ -131,14 +145,24 @@ DETECT_QUERY_CACHE_MAX = 500
 SEARCH_V6_CACHE_MAX = 1500
 RELATED_CHUNKS_CACHE_MAX = 2000
 PROMPT_TEMPLATES_CACHE_MAX = 20
+RESOLVE_TENANT_CACHE_MAX = 500
+CLASSIFY_V2_CACHE_MAX = 1000
+CLASSIFY_TUONG_TAC_CACHE_MAX = 500
+CLASSIFY_PHAN_ANH_CACHE_MAX = 500
+CLASSIFY_TONG_QUAN_CACHE_MAX = 500
+CLASSIFY_LLM_PROCEDURE_CACHE_MAX = 500
 
 
 def _cache_get(cache, key):
-    return cache_backend.get(cache, key)
+    cached = cache_backend.get(cache, key)
+    if cached is None:
+        return _CACHE_MISS
+    return cached
 
 
 def _cache_set(cache, key, value, ttl_seconds, max_items):
-    cache_backend.set(cache, key, value, ttl_seconds, max_items)
+    value_to_cache = _NULL_SENTINEL if value is None else value
+    cache_backend.set(cache, key, value_to_cache, ttl_seconds, max_items)
 
 
 def _clone_rows(rows):
@@ -227,7 +251,7 @@ def tenant_exists(tenant_code: str) -> bool:
 def get_embedding_cached(user_text: str):
     key = normalize_text(user_text or "")
     cached = _cache_get(_embedding_cache, key)
-    if cached is not None:
+    if cached is not _CACHE_MISS:
         return cached
 
     emb = get_embedding(user_text)
@@ -239,13 +263,39 @@ def classify_llm_cached(user_text: str, prompt_template: str = None):
     template_hash = hashlib.sha1((prompt_template or "").encode("utf-8")).hexdigest()
     key = (normalize_text(user_text or ""), template_hash)
     cached = _cache_get(_classify_llm_cache, key)
-    if cached is not None:
+    if cached is not _CACHE_MISS:
         return cached
 
     value = classify_category(user_text, prompt_template=prompt_template)
     _cache_set(_classify_llm_cache, key, value, LLM_CLASSIFY_CACHE_TTL, LLM_CLASSIFY_CACHE_MAX)
     return value
 
+def resolve_target_tenant_code_cached(current_tenant_code, scope):
+    key = (current_tenant_code, scope)
+    cached = _cache_get(_resolve_tenant_cache, key)
+
+    if cached is not _CACHE_MISS:
+        if cached == _NULL_SENTINEL:
+            return None
+        return cached
+
+    response = supabase.rpc(
+        "resolve_target_tenant_code",
+        {
+            "p_current_tenant_code": current_tenant_code,
+            "p_target_scope": scope
+        }
+    ).execute()
+
+    value = response.data
+    _cache_set(
+        _resolve_tenant_cache,
+        key,
+        value,
+        RESOLVE_TENANT_CACHE_TTL,
+        RESOLVE_TENANT_CACHE_MAX
+    )
+    return value
 
 def get_active_prompt_templates_map():
     response = (
@@ -273,7 +323,7 @@ def get_active_prompt_templates_map():
 def get_active_prompt_templates_map_cached():
     key = "active_prompt_templates"
     cached = _cache_get(_prompt_templates_cache, key)
-    if cached is not None:
+    if cached is not _CACHE_MISS:
         return dict(cached)
 
     templates = get_active_prompt_templates_map()
@@ -285,6 +335,66 @@ def get_active_prompt_templates_map_cached():
         PROMPT_TEMPLATES_CACHE_MAX,
     )
     return templates
+
+
+def classify_v2_cached(normalized_query: str, prepared, tenant_code: str):
+    """Cache wrapper for classify_v2 - rule-based category/subject classification"""
+    key = f"classify_v2_{tenant_code}_{hashlib.md5(normalized_query.encode()).hexdigest()}"
+    cached = _cache_get(_classify_v2_cache, key)
+    if cached is not _CACHE_MISS:
+        return cached
+    
+    result = classify_v2(normalized_query, prepared)
+    _cache_set(_classify_v2_cache, key, result, CLASSIFY_V2_CACHE_TTL, CLASSIFY_V2_CACHE_MAX)
+    return result
+
+
+def classify_tuong_tac_cached(user_message: str, tenant_code: str):
+    """Cache wrapper for classify_with_tuong_tac - interaction subject classification"""
+    key = f"tuong_tac_{tenant_code}_{hashlib.md5(user_message.encode()).hexdigest()}"
+    cached = _cache_get(_classify_tuong_tac_cache, key)
+    if cached is not _CACHE_MISS:
+        return cached
+    
+    result = classify_with_tuong_tac(user_message)
+    _cache_set(_classify_tuong_tac_cache, key, result, CLASSIFY_TUONG_TAC_CACHE_TTL, CLASSIFY_TUONG_TAC_CACHE_MAX)
+    return result
+
+
+def classify_phan_anh_cached(user_message: str, tenant_code: str):
+    """Cache wrapper for classify_with_phan_anh - feedback/suggestion subject classification"""
+    key = f"phan_anh_{tenant_code}_{hashlib.md5(user_message.encode()).hexdigest()}"
+    cached = _cache_get(_classify_phan_anh_cache, key)
+    if cached is not _CACHE_MISS:
+        return cached
+    
+    result = classify_with_phan_anh(user_message)
+    _cache_set(_classify_phan_anh_cache, key, result, CLASSIFY_PHAN_ANH_CACHE_TTL, CLASSIFY_PHAN_ANH_CACHE_MAX)
+    return result
+
+
+def classify_tong_quan_cached(user_message: str, tenant_code: str):
+    """Cache wrapper for classify_with_tong_quan - general information subject classification"""
+    key = f"tong_quan_{tenant_code}_{hashlib.md5(user_message.encode()).hexdigest()}"
+    cached = _cache_get(_classify_tong_quan_cache, key)
+    if cached is not _CACHE_MISS:
+        return cached
+    
+    result = classify_with_tong_quan(user_message)
+    _cache_set(_classify_tong_quan_cache, key, result, CLASSIFY_TONG_QUAN_CACHE_TTL, CLASSIFY_TONG_QUAN_CACHE_MAX)
+    return result
+
+
+def classify_llm_procedure_cached(user_message: str):
+    """Cache wrapper for classify_llm - procedure metadata extraction & classification"""
+    key = f"classify_llm_proc_{hashlib.md5(user_message.encode()).hexdigest()}"
+    cached = _cache_get(_classify_llm_procedure_cache, key)
+    if cached is not _CACHE_MISS:
+        return cached
+    
+    result = classify_llm(user_message)
+    _cache_set(_classify_llm_procedure_cache, key, result, CLASSIFY_LLM_PROCEDURE_CACHE_TTL, CLASSIFY_LLM_PROCEDURE_CACHE_MAX)
+    return result
 
 
 def pick_prompt_template(templates_map, prompt_type: str):
@@ -301,7 +411,7 @@ def detect_query_cached(user_text: str, context: str):
     context_hash = hashlib.sha1((context or "").encode("utf-8")).hexdigest()
     key = (normalize_text(user_text or ""), context_hash)
     cached = _cache_get(_detect_query_cache, key)
-    if cached is not None:
+    if cached is not _CACHE_MISS:
         return cached
 
     value = detect_query(user_text, context)
@@ -312,7 +422,7 @@ def detect_query_cached(user_text: str, context: str):
 def search_documents_full_hybrid_v6_cached(normalized_query, query_embedding, category, subject, p_limit=5, tenant=None):
     key = (tenant, normalized_query, category, subject, p_limit)
     cached = _cache_get(_search_v6_cache, key)
-    if cached is not None:
+    if cached is not _CACHE_MISS:
         return _clone_rows(cached)
 
     response = supabase.rpc(
@@ -1803,7 +1913,7 @@ def get_related_chunks(supabase, tenant_code: str, source_chunk_id: str):
 def get_related_chunks_cached(tenant_code: str, source_chunk_id: str):
     key = (tenant_code, source_chunk_id)
     cached = _cache_get(_related_chunks_cache, key)
-    if cached is not None:
+    if cached is not _CACHE_MISS:
         return _clone_rows(cached)
 
     rows = get_related_chunks(supabase, tenant_code, source_chunk_id)
@@ -1922,15 +2032,7 @@ def chat_stream():
 
         scope = extract_scope(user_message)
 
-        response = supabase.rpc(
-            "resolve_target_tenant_code",
-            {
-                "p_current_tenant_code": tenant_code,
-                "p_target_scope": scope
-            }
-        ).execute()
-
-        tenant_code = response.data
+        tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
 
         yield f"data: {json.dumps({'log': f'=> Xác định scope: {scope}'})}\n\n"
         yield f"data: {json.dumps({'log': f'=> Tenant code tham vấn: {tenant_code}'})}\n\n"
@@ -2372,6 +2474,10 @@ def chat():
         user_message = result["expanded"]
         normalized_query = result["normalized"]
 
+        scope = extract_scope(user_message)
+
+        tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
+
         matched_keyword = next(
             (
                 kw for kw in BANNED_KEYWORDS
@@ -2393,7 +2499,7 @@ def chat():
             user_message = rewrite_query(user_message, last_question)
             normalized_query = normalize_text(user_message)
 
-        res = classify_v2(normalized_query, PREPARED)
+        res = classify_v2_cached(normalized_query, PREPARED, tenant_code)
         category, subject = res["category"], res["subject"]
         if res["need_llm"]:
             category_llm = classify_llm_cached(user_message)
@@ -2408,7 +2514,7 @@ def chat():
             }), 200
 
         if category == "tuong_tac":
-            subject = classify_with_tuong_tac(user_message)
+            subject = classify_tuong_tac_cached(user_message, tenant_code)
             subject = normalize_subject_value(subject)
             if subject is None:
                 category = check_classify_tuong_tac(user_message)
@@ -2436,18 +2542,18 @@ def chat():
                 }), 200
 
         if category == "phan_anh_kien_nghi":
-            subject = classify_with_phan_anh(user_message)
+            subject = classify_phan_anh_cached(user_message, tenant_code)
             subject = normalize_subject_value(subject)
             if subject is None:
                 category = check_classify_phan_anh_kien_nghi(user_message)
                 category = normalize_subject_value(category)
 
         if category == "thong_tin_tong_quan":
-            subject = classify_with_tong_quan(user_message)
+            subject = classify_tong_quan_cached(user_message, tenant_code)
             subject = normalize_subject_value(subject)
 
         if category == "thu_tuc_hanh_chinh":
-            meta = classify_llm(user_message)
+            meta = classify_llm_procedure_cached(user_message)
             if not meta or not isinstance(meta, dict):
                 return jsonify({"error": "Không trích xuất được thông tin thủ tục"}), 422
 
