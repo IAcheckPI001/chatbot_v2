@@ -32,6 +32,62 @@ client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
 )
 
+def _to_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    s = str(value).strip().lower()
+    if s in {"1", "true", "yes", "y", "on"}:
+        return True
+    if s in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _to_int(value, default=None):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _paginate(page, per_page):
+    page = page if isinstance(page, int) and page > 0 else 1
+    per_page = per_page if isinstance(per_page, int) and per_page > 0 else 20
+    per_page = min(per_page, 100)
+    start = (page - 1) * per_page
+    end = start + per_page - 1
+    return page, per_page, start, end
+
+
+def _v2_list_response(items, page, per_page, total=None):
+    total_pages = None
+    if isinstance(total, int) and total >= 0:
+        total_pages = max(1, (total + per_page - 1) // per_page) if per_page > 0 else 1
+
+    payload = {
+        "data": items or [],
+        "pagination": {
+            "page": page,
+            "per_page": per_page,
+        },
+        "links": {},
+    }
+
+    if total_pages is not None:
+        payload["pagination"]["total_pages"] = total_pages
+        payload["pagination"]["total_items"] = total
+
+    return payload
+
+
+def _require_json_object():
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return None, (jsonify({"error": "Invalid JSON payload"}), 400)
+    return data, None
+
 
 @app.route('/api/cache-health', methods=['GET'])
 def cache_health():
@@ -93,6 +149,64 @@ def normalize_tenant_code(value):
 
     tenant_code = str(value).strip()
     return tenant_code or None
+
+
+def normalize_tenant_id(value):
+    """
+    Chuẩn hóa tenant_id (ID số trong hệ thống chính).
+    Chấp nhận int hoặc chuỗi số, trả về str hoặc None.
+    """
+    if value is None:
+        return None
+
+    s = str(value).strip()
+    if not s:
+        return None
+    if not s.isdigit():
+        return None
+    return s
+
+
+def tenant_code_from_id(tenant_id: str):
+    """
+    Nhận tenant_id (ID trong hệ thống chính) và trả về tenant_code tương ứng trong Supabase.tenants.
+    """
+    if tenant_id is None:
+        return None
+
+    # Giả định bảng tenants có cột id (primary key) và tenant_code
+    response = (
+        supabase.table("tenants")
+        .select("tenant_code")
+        .eq("id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    row = (response.data or [None])[0] if isinstance(response.data, list) else response.data
+    code = (row or {}).get("tenant_code") if isinstance(row, dict) else None
+    return normalize_tenant_code(code)
+
+
+def ensure_tenant_code(tenant_id=None, tenant_code=None):
+    """
+    Chuẩn hóa để luôn có tenant_code:
+    - Nếu tenant_code truyền vào hợp lệ → dùng luôn.
+    - Nếu không, nhưng có tenant_id → map sang tenant_code qua bảng tenants.
+    Trả về (tenant_code, error_message_or_None).
+    """
+    norm_code = normalize_tenant_code(tenant_code)
+    if norm_code:
+        return norm_code, None
+
+    norm_id = normalize_tenant_id(tenant_id)
+    if not norm_id:
+        return None, "tenant_id or tenant_code is required"
+
+    mapped_code = tenant_code_from_id(norm_id)
+    if not mapped_code:
+        return None, f"tenant_id '{norm_id}' does not exist"
+
+    return mapped_code, None
 
 
 def tenant_exists(tenant_code: str) -> bool:
@@ -248,6 +362,706 @@ def get_chunks():
         return jsonify({
             "error": str(e)
         }), 500
+
+
+# ----------------------------
+# New API surface (for external integrations)
+# Base URL in Laravel: https://chatbot.mysuite.vn/api  (so routes below are /api/*)
+# ----------------------------
+
+@app.route('/api/chunks', methods=['GET'])
+def v2_list_chunks():
+    try:
+        page = _to_int(request.args.get("page"), 1)
+        per_page = _to_int(request.args.get("per_page"), 20)
+        category = (request.args.get("category") or "").strip() or None
+        subject = (request.args.get("subject") or "").strip() or None
+        search = (request.args.get("search") or "").strip() or None
+
+        # Hỗ trợ cả tenant_id (từ hệ thống chính) và tenant_code (cũ)
+        tenant_id = request.args.get("tenant_id")
+        raw_tenant_code = request.args.get("tenant_code")
+        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        if err:
+            return jsonify({"error": err}), 400
+        if not tenant_exists(tenant_code):
+            return jsonify({"error": "tenant_code does not exist"}), 400
+
+        page, per_page, start, end = _paginate(page, per_page)
+
+        base_query = supabase.table("documents").select(
+            "id, text_content, category, subject, updated_at"
+        ).eq("tenant_code", tenant_code)
+
+        if category:
+            base_query = base_query.eq("category", category)
+        if subject:
+            base_query = base_query.eq("subject", subject)
+
+        # Fetch all matching rows first to compute total and then page in memory.
+        # This keeps pagination and search consistent for now.
+        res_all = base_query.order("updated_at", desc=True).execute()
+        all_rows = res_all.data or []
+
+        if search:
+            needle = search.lower()
+            all_rows = [
+                r for r in all_rows
+                if (r.get("text_content") or "").lower().find(needle) != -1
+            ]
+
+        total_items = len(all_rows)
+        total_pages = max(1, (total_items + per_page - 1) // per_page) if per_page > 0 else 1
+
+        page_rows = all_rows[start:end + 1] if total_items else []
+
+        items = [
+            {
+                "id": row.get("id"),
+                "content": row.get("text_content"),
+                "category": row.get("category"),
+                "subject": row.get("subject"),
+                "source": None,
+                "sourceType": None,
+                "tokens": None,
+                "createdAt": row.get("created_at") or row.get("updated_at"),
+            }
+            for row in page_rows
+        ]
+
+        payload = _v2_list_response(items, page, per_page, total=total_items)
+        return jsonify(payload), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/chunks/filters', methods=['GET'])
+def v2_chunk_filters():
+    try:
+        # Distinct is not always supported consistently; pull limited fields and dedupe.
+        res = supabase.table("documents").select("category, subject").execute()
+        rows = res.data or []
+        categories = sorted({(r.get("category") or "").strip() for r in rows if (r.get("category") or "").strip()})
+        subjects = sorted({(r.get("subject") or "").strip() for r in rows if (r.get("subject") or "").strip()})
+        return jsonify({"data": {"categories": categories, "subjects": subjects}}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/chunks', methods=['POST'])
+def v2_create_chunk():
+    try:
+        data, err = _require_json_object()
+        if err:
+            return err
+
+        content = (data.get("content") or "").strip()
+        if not content:
+            return jsonify({"error": "content is required"}), 400
+
+        category = (data.get("category") or "").strip() or None
+        subject = (data.get("subject") or "").strip() or None
+
+        # Hỗ trợ cả tenant_id và tenant_code
+        tenant_id = data.get("tenant_id") or request.args.get("tenant_id")
+        raw_tenant_code = data.get("tenant_code") or request.args.get("tenant_code")
+        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        if err:
+            return jsonify({"error": err}), 400
+        if not tenant_exists(tenant_code):
+            return jsonify({"error": "tenant_code does not exist"}), 400
+        embedding = get_proc_embedding(content)
+        if embedding is None:
+            return jsonify({"error": "Failed to create embedding"}), 500
+
+        procedure_name = extract_procedure_name(content) if category == "thu_tuc_hanh_chinh" else None
+
+        row = {
+            "tenant_code": tenant_code,
+            "scope": "xa_phuong",
+            "procedure_name": procedure_name,
+            "text_content": content,
+            "normalized_text": normalize_text(procedure_name or content),
+            "category": category,
+            "subject": subject,
+            "embedding": embedding,
+        }
+
+        res = supabase.table("documents").insert(row).execute()
+        created = (res.data or [None])[0] if isinstance(res.data, list) else res.data
+
+        out = {
+            "id": created.get("id") if isinstance(created, dict) else None,
+            "content": created.get("text_content") if isinstance(created, dict) else content,
+            "category": created.get("category") if isinstance(created, dict) else category,
+            "subject": created.get("subject") if isinstance(created, dict) else subject,
+            "source": None,
+            "sourceType": None,
+            "tokens": None,
+            "createdAt": (created.get("created_at") or created.get("updated_at")) if isinstance(created, dict) else None,
+        }
+
+        return jsonify({"data": out}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/chunks/<chunk_id>', methods=['PUT'])
+def v2_update_chunk(chunk_id):
+    try:
+        data, err = _require_json_object()
+        if err:
+            return err
+
+        if "content" in data:
+            content = (data.get("content") or "").strip()
+            if not content:
+                return jsonify({"error": "content is required"}), 400
+        else:
+            content = None
+
+        patch = {}
+        if content is not None:
+            patch["text_content"] = content
+            patch["embedding"] = get_proc_embedding(content)
+            patch["normalized_text"] = normalize_text(content)
+
+        if "category" in data:
+            patch["category"] = (data.get("category") or "").strip() or None
+        if "subject" in data:
+            patch["subject"] = (data.get("subject") or "").strip() or None
+        if "source" in data:
+            patch["source"] = (data.get("source") or "").strip() or None
+        if "sourceType" in data:
+            patch["sourceType"] = (data.get("sourceType") or "").strip() or None
+        if "tokens" in data:
+            patch["tokens"] = _to_int(data.get("tokens"), None)
+
+        if not patch:
+            return jsonify({"error": "No fields to update"}), 400
+
+        res = supabase.table("documents").update(patch).eq("id", chunk_id).execute()
+        if not res.data:
+            return jsonify({"error": "Chunk not found"}), 404
+
+        updated = res.data[0] if isinstance(res.data, list) else res.data
+        out = {
+            "id": updated.get("id"),
+            "content": updated.get("text_content"),
+            "category": updated.get("category"),
+            "subject": updated.get("subject"),
+            "source": updated.get("source"),
+            "sourceType": updated.get("sourceType"),
+            "tokens": updated.get("tokens"),
+            "createdAt": updated.get("created_at") or updated.get("updated_at"),
+        }
+        return jsonify({"data": out}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/chunks/<chunk_id>', methods=['DELETE'])
+def v2_delete_chunk(chunk_id):
+    try:
+        res = supabase.table("documents").delete().eq("id", chunk_id).execute()
+        if not res.data:
+            return jsonify({"error": "Chunk not found"}), 404
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# System prompts (expects a table named `system_prompts`)
+@app.route('/api/system-prompts', methods=['GET'])
+def v2_list_system_prompts():
+    try:
+        res = (
+            supabase
+            .table("system_prompts")
+            .select("id, name, content, scope, channel, is_active, created_at")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        rows = res.data or []
+        items = [
+            {
+                "id": r.get("id"),
+                "name": r.get("name"),
+                "content": r.get("content"),
+                "scope": r.get("scope"),
+                "channel": r.get("channel"),
+                "isActive": bool(r.get("is_active")),
+                "createdAt": r.get("created_at"),
+            }
+            for r in rows
+        ]
+        return jsonify({"data": items}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/system-prompts', methods=['POST'])
+def v2_create_system_prompt():
+    try:
+        data, err = _require_json_object()
+        if err:
+            return err
+
+        name = (data.get("name") or "").strip()
+        content = (data.get("content") or "").strip()
+        scope = (data.get("scope") or "").strip()
+        channel = (data.get("channel") or "").strip() or None
+        is_active = _to_bool(data.get("isActive"), False)
+
+        if not name:
+            return jsonify({"error": "name is required"}), 400
+        if not content:
+            return jsonify({"error": "content is required"}), 400
+        if not scope:
+            return jsonify({"error": "scope is required"}), 400
+
+        row = {
+            "name": name,
+            "content": content,
+            "scope": scope,
+            "channel": channel,
+            "is_active": is_active,
+        }
+        res = supabase.table("system_prompts").insert(row).execute()
+        created = (res.data or [None])[0] if isinstance(res.data, list) else res.data
+
+        out = {
+            "id": created.get("id") if isinstance(created, dict) else None,
+            "name": created.get("name") if isinstance(created, dict) else name,
+            "content": created.get("content") if isinstance(created, dict) else content,
+            "scope": created.get("scope") if isinstance(created, dict) else scope,
+            "channel": created.get("channel") if isinstance(created, dict) else channel,
+            "isActive": bool(created.get("is_active")) if isinstance(created, dict) else is_active,
+            "createdAt": created.get("created_at") if isinstance(created, dict) else None,
+        }
+        return jsonify({"data": out}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/system-prompts/<prompt_id>', methods=['PUT'])
+def v2_update_system_prompt(prompt_id):
+    try:
+        data, err = _require_json_object()
+        if err:
+            return err
+
+        patch = {}
+        if "name" in data:
+            patch["name"] = (data.get("name") or "").strip()
+            if not patch["name"]:
+                return jsonify({"error": "name is required"}), 400
+        if "content" in data:
+            patch["content"] = (data.get("content") or "").strip()
+            if not patch["content"]:
+                return jsonify({"error": "content is required"}), 400
+        if "scope" in data:
+            patch["scope"] = (data.get("scope") or "").strip()
+            if not patch["scope"]:
+                return jsonify({"error": "scope is required"}), 400
+        if "channel" in data:
+            patch["channel"] = (data.get("channel") or "").strip() or None
+        if "isActive" in data:
+            patch["is_active"] = _to_bool(data.get("isActive"), False)
+
+        if not patch:
+            return jsonify({"error": "No fields to update"}), 400
+
+        res = supabase.table("system_prompts").update(patch).eq("id", prompt_id).execute()
+        if not res.data:
+            return jsonify({"error": "System prompt not found"}), 404
+        updated = res.data[0] if isinstance(res.data, list) else res.data
+        out = {
+            "id": updated.get("id"),
+            "name": updated.get("name"),
+            "content": updated.get("content"),
+            "scope": updated.get("scope"),
+            "channel": updated.get("channel"),
+            "isActive": bool(updated.get("is_active")),
+            "createdAt": updated.get("created_at"),
+        }
+        return jsonify({"data": out}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/system-prompts/<prompt_id>', methods=['DELETE'])
+def v2_delete_system_prompt(prompt_id):
+    try:
+        res = supabase.table("system_prompts").delete().eq("id", prompt_id).execute()
+        if not res.data:
+            return jsonify({"error": "System prompt not found"}), 404
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# Safety filters (expects a table named `safety_filters`)
+@app.route('/api/safety-filters', methods=['GET'])
+def v2_list_safety_filters():
+    try:
+        res = (
+            supabase
+            .table("safety_filters")
+            .select("id, name, keywords, action, replacement, is_active, created_at")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        rows = res.data or []
+        items = [
+            {
+                "id": r.get("id"),
+                "name": r.get("name"),
+                "keywords": r.get("keywords") or [],
+                "action": r.get("action"),
+                "replacement": r.get("replacement"),
+                "isActive": bool(r.get("is_active")),
+                "createdAt": r.get("created_at"),
+            }
+            for r in rows
+        ]
+        return jsonify({"data": items}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/safety-filters', methods=['POST'])
+def v2_create_safety_filter():
+    try:
+        data, err = _require_json_object()
+        if err:
+            return err
+
+        name = (data.get("name") or "").strip()
+        keywords = data.get("keywords")
+        action = (data.get("action") or "").strip()
+        replacement = (data.get("replacement") or "").strip() or None
+        is_active = _to_bool(data.get("isActive"), False)
+
+        if not name:
+            return jsonify({"error": "name is required"}), 400
+        if not isinstance(keywords, list) or not all(isinstance(k, str) for k in keywords):
+            return jsonify({"error": "keywords must be an array of strings"}), 400
+        if not action:
+            return jsonify({"error": "action is required"}), 400
+
+        row = {
+            "name": name,
+            "keywords": keywords,
+            "action": action,
+            "replacement": replacement,
+            "is_active": is_active,
+        }
+        res = supabase.table("safety_filters").insert(row).execute()
+        created = (res.data or [None])[0] if isinstance(res.data, list) else res.data
+
+        out = {
+            "id": created.get("id") if isinstance(created, dict) else None,
+            "name": created.get("name") if isinstance(created, dict) else name,
+            "keywords": created.get("keywords") if isinstance(created, dict) else keywords,
+            "action": created.get("action") if isinstance(created, dict) else action,
+            "replacement": created.get("replacement") if isinstance(created, dict) else replacement,
+            "isActive": bool(created.get("is_active")) if isinstance(created, dict) else is_active,
+            "createdAt": created.get("created_at") if isinstance(created, dict) else None,
+        }
+        return jsonify({"data": out}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/safety-filters/<filter_id>', methods=['PUT'])
+def v2_update_safety_filter(filter_id):
+    try:
+        data, err = _require_json_object()
+        if err:
+            return err
+
+        patch = {}
+        if "name" in data:
+            patch["name"] = (data.get("name") or "").strip()
+            if not patch["name"]:
+                return jsonify({"error": "name is required"}), 400
+        if "keywords" in data:
+            keywords = data.get("keywords")
+            if not isinstance(keywords, list) or not all(isinstance(k, str) for k in keywords):
+                return jsonify({"error": "keywords must be an array of strings"}), 400
+            patch["keywords"] = keywords
+        if "action" in data:
+            patch["action"] = (data.get("action") or "").strip()
+            if not patch["action"]:
+                return jsonify({"error": "action is required"}), 400
+        if "replacement" in data:
+            patch["replacement"] = (data.get("replacement") or "").strip() or None
+        if "isActive" in data:
+            patch["is_active"] = _to_bool(data.get("isActive"), False)
+
+        if not patch:
+            return jsonify({"error": "No fields to update"}), 400
+
+        res = supabase.table("safety_filters").update(patch).eq("id", filter_id).execute()
+        if not res.data:
+            return jsonify({"error": "Safety filter not found"}), 404
+        updated = res.data[0] if isinstance(res.data, list) else res.data
+        out = {
+            "id": updated.get("id"),
+            "name": updated.get("name"),
+            "keywords": updated.get("keywords") or [],
+            "action": updated.get("action"),
+            "replacement": updated.get("replacement"),
+            "isActive": bool(updated.get("is_active")),
+            "createdAt": updated.get("created_at"),
+        }
+        return jsonify({"data": out}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/safety-filters/<filter_id>', methods=['DELETE'])
+def v2_delete_safety_filter(filter_id):
+    try:
+        res = supabase.table("safety_filters").delete().eq("id", filter_id).execute()
+        if not res.data:
+            return jsonify({"error": "Safety filter not found"}), 404
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# FAQs (expects a table named `faqs`)
+@app.route('/api/faqs', methods=['GET'])
+def v2_list_faqs():
+    try:
+        page = _to_int(request.args.get("page"), 1)
+        per_page = _to_int(request.args.get("per_page"), 20)
+        category = (request.args.get("category") or "").strip() or None
+        search = (request.args.get("search") or "").strip() or None
+
+        page, per_page, start, end = _paginate(page, per_page)
+        query = supabase.table("faqs").select(
+            "id, question, answer, category, is_active, views, created_at"
+        )
+        if category:
+            query = query.eq("category", category)
+
+        res = query.order("created_at", desc=True).range(start, end).execute()
+        rows = res.data or []
+
+        if search:
+            needle = search.lower()
+            rows = [
+                r for r in rows
+                if (r.get("question") or "").lower().find(needle) != -1
+                or (r.get("answer") or "").lower().find(needle) != -1
+            ]
+
+        items = [
+            {
+                "id": r.get("id"),
+                "question": r.get("question"),
+                "answer": r.get("answer"),
+                "category": r.get("category"),
+                "isActive": bool(r.get("is_active")),
+                "views": r.get("views") or 0,
+                "createdAt": r.get("created_at"),
+            }
+            for r in rows
+        ]
+
+        return jsonify(_v2_list_response(items, page, per_page)), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/faqs', methods=['POST'])
+def v2_create_faq():
+    try:
+        data, err = _require_json_object()
+        if err:
+            return err
+
+        question = (data.get("question") or "").strip()
+        answer = (data.get("answer") or "").strip()
+        category = (data.get("category") or "").strip()
+        is_active = _to_bool(data.get("isActive"), False)
+
+        if not question:
+            return jsonify({"error": "question is required"}), 400
+        if not answer:
+            return jsonify({"error": "answer is required"}), 400
+        if not category:
+            return jsonify({"error": "category is required"}), 400
+
+        row = {
+            "question": question,
+            "answer": answer,
+            "category": category,
+            "is_active": is_active,
+            "views": 0,
+        }
+        res = supabase.table("faqs").insert(row).execute()
+        created = (res.data or [None])[0] if isinstance(res.data, list) else res.data
+
+        out = {
+            "id": created.get("id") if isinstance(created, dict) else None,
+            "question": created.get("question") if isinstance(created, dict) else question,
+            "answer": created.get("answer") if isinstance(created, dict) else answer,
+            "category": created.get("category") if isinstance(created, dict) else category,
+            "isActive": bool(created.get("is_active")) if isinstance(created, dict) else is_active,
+            "views": created.get("views") if isinstance(created, dict) else 0,
+            "createdAt": created.get("created_at") if isinstance(created, dict) else None,
+        }
+        return jsonify({"data": out}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/faqs/<faq_id>', methods=['PUT'])
+def v2_update_faq(faq_id):
+    try:
+        data, err = _require_json_object()
+        if err:
+            return err
+
+        patch = {}
+        if "question" in data:
+            patch["question"] = (data.get("question") or "").strip()
+            if not patch["question"]:
+                return jsonify({"error": "question is required"}), 400
+        if "answer" in data:
+            patch["answer"] = (data.get("answer") or "").strip()
+            if not patch["answer"]:
+                return jsonify({"error": "answer is required"}), 400
+        if "category" in data:
+            patch["category"] = (data.get("category") or "").strip()
+            if not patch["category"]:
+                return jsonify({"error": "category is required"}), 400
+        if "isActive" in data:
+            patch["is_active"] = _to_bool(data.get("isActive"), False)
+
+        if not patch:
+            return jsonify({"error": "No fields to update"}), 400
+
+        res = supabase.table("faqs").update(patch).eq("id", faq_id).execute()
+        if not res.data:
+            return jsonify({"error": "FAQ not found"}), 404
+
+        updated = res.data[0] if isinstance(res.data, list) else res.data
+        out = {
+            "id": updated.get("id"),
+            "question": updated.get("question"),
+            "answer": updated.get("answer"),
+            "category": updated.get("category"),
+            "isActive": bool(updated.get("is_active")),
+            "views": updated.get("views") or 0,
+            "createdAt": updated.get("created_at"),
+        }
+        return jsonify({"data": out}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/faqs/<faq_id>', methods=['DELETE'])
+def v2_delete_faq(faq_id):
+    try:
+        res = supabase.table("faqs").delete().eq("id", faq_id).execute()
+        if not res.data:
+            return jsonify({"error": "FAQ not found"}), 404
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# Chat sessions (derived from `log_query.session_chat`)
+@app.route('/api/chat-sessions', methods=['GET'])
+def v2_list_chat_sessions():
+    try:
+        page = _to_int(request.args.get("page"), 1)
+        per_page = _to_int(request.args.get("per_page"), 20)
+        search = (request.args.get("search") or "").strip() or None
+        channel = (request.args.get("channel") or "").strip() or None  # not stored currently
+        from_ts = (request.args.get("from") or "").strip() or None
+        to_ts = (request.args.get("to") or "").strip() or None
+
+        page, per_page, start, end = _paginate(page, per_page)
+
+        q = supabase.table("log_query").select(
+            "session_chat, raw_query, answer, created_at, tenant_code"
+        ).eq("event_type", "normal").order("created_at", desc=True)
+
+        if from_ts:
+            q = q.gte("created_at", from_ts)
+        if to_ts:
+            q = q.lte("created_at", to_ts)
+
+        res = q.range(0, 2000).execute()
+        rows = res.data or []
+
+        if search:
+            needle = search.lower()
+            rows = [
+                r for r in rows
+                if (r.get("raw_query") or "").lower().find(needle) != -1
+                or (r.get("answer") or "").lower().find(needle) != -1
+            ]
+
+        # Deduplicate by session_chat keeping latest message (already ordered desc).
+        seen = set()
+        sessions = []
+        for r in rows:
+            sid = r.get("session_chat")
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            sessions.append({
+                "id": sid,
+                "channel": channel,  # best-effort; no persisted channel in log_query
+                "tenantCode": r.get("tenant_code"),
+                "lastMessageAt": r.get("created_at"),
+                "lastUserMessage": r.get("raw_query"),
+                "lastBotMessage": r.get("answer"),
+            })
+
+        paged = sessions[start:start + per_page]
+        return jsonify(_v2_list_response(paged, page, per_page, total=len(sessions))), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/chat-sessions/<session_id>', methods=['GET'])
+def v2_get_chat_session(session_id):
+    try:
+        res = (
+            supabase
+            .table("log_query")
+            .select("raw_query, answer, created_at, event_type, tenant_code")
+            .eq("session_chat", session_id)
+            .eq("event_type", "normal")
+            .order("created_at")
+            .execute()
+        )
+        rows = res.data or []
+        messages = []
+        for r in rows:
+            ts = r.get("created_at")
+            uq = (r.get("raw_query") or "").strip()
+            aq = (r.get("answer") or "").strip()
+            if uq:
+                messages.append({"role": "user", "content": uq, "timestamp": ts})
+            if aq:
+                messages.append({"role": "bot", "content": aq, "timestamp": ts})
+
+        payload = {
+            "session": {"id": session_id},
+            "messages": messages,
+        }
+        return jsonify({"data": payload}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/get-alias', methods=['GET'])
@@ -762,9 +1576,15 @@ def update_alias(alias_id):
 @app.route("/api/load-history", methods=["POST"])
 def load_history():
 
-    data = request.json
+    data = request.json or {}
     session_id = data.get("session_id")
-    tenant_code = data.get("tenant_code")
+
+    # Hỗ trợ cả tenant_id và tenant_code
+    tenant_id = data.get("tenant_id")
+    raw_tenant_code = data.get("tenant_code")
+    tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+    if err:
+        return jsonify({"error": err}), 400
 
     query = (
         supabase
@@ -833,7 +1653,12 @@ def bulk_create_chunk_relations():
     try:
         data = request.json or {}
         source_chunk_id = data.get("source_chunk_id")
-        tenant_code = data.get("tenant_code")
+        # Hỗ trợ cả tenant_id và tenant_code
+        tenant_id = data.get("tenant_id")
+        raw_tenant_code = data.get("tenant_code")
+        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        if err:
+            return jsonify({"error": err}), 400
         target_chunk_ids = data.get("target_chunk_ids") or []
 
         if not source_chunk_id:
@@ -888,7 +1713,12 @@ def bulk_delete_chunk_relations():
     try:
         data = request.json or {}
         source_chunk_id = data.get("source_chunk_id")
-        tenant_code = data.get("tenant_code")
+        # Hỗ trợ cả tenant_id và tenant_code
+        tenant_id = data.get("tenant_id")
+        raw_tenant_code = data.get("tenant_code")
+        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        if err:
+            return jsonify({"error": err}), 400
         target_chunk_ids = data.get("target_chunk_ids") or []
 
         if not source_chunk_id:
@@ -1015,11 +1845,14 @@ def chat_stream():
         origin_mess = user_message
         use_llm = data.get('use_llm', False)
         chunk_generate = data.get("chunk_limit", 1)
-        tenant_code = normalize_tenant_code(data.get("tenant_code"))
-        log_data = {}
 
-        if tenant_code is None:
-            yield f"data: {json.dumps({'replies': 'Vui lòng chọn tenant trước khi sử dụng chatbot.', 'chunks': []})}\n\n"
+        # Hỗ trợ cả tenant_id và tenant_code
+        tenant_id = data.get("tenant_id")
+        raw_tenant_code = data.get("tenant_code")
+        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        log_data = {}
+        if err:
+            yield f"data: {json.dumps({'replies': err, 'chunks': []})}\n\n"
             return
 
         if not tenant_exists(tenant_code):
@@ -1465,10 +2298,12 @@ def chat():
         if len(session_id) > 128:
             return jsonify({"error": "session_id is too long"}), 400
 
-        tenant_code = normalize_tenant_code(data.get("tenant_code"))
-
-        if tenant_code is None:
-            return jsonify({"error": "tenant_code must be a string or null"}), 400
+        # Hỗ trợ cả tenant_id và tenant_code
+        tenant_id = data.get("tenant_id")
+        raw_tenant_code = data.get("tenant_code")
+        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        if err:
+            return jsonify({"error": err}), 400
 
         if not tenant_exists(tenant_code):
             return jsonify({"error": f"tenant_code '{tenant_code}' does not exist"}), 400
