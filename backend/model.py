@@ -905,75 +905,221 @@ Câu hỏi: "{query}"
 #         return response.content.strip()
 #     except:
 #         return query
+def rewrite_query(query: str, prompt_template: str = None) -> str:
+    default_prompt = f"""Bạn là hệ thống viết lại câu hỏi hoàn chỉnh cho chatbot hành chính cấp xã/phường.
 
-def rewrite_query(query: str, last_question: str, prompt_template: str = None) -> str:
+NHIỆM VỤ
+Viết lại câu hỏi hiện tại thành một câu hỏi độc lập, ngắn gọn, tự nhiên, giữ nguyên ý nghĩa ban đầu.
+
+ĐẦU VÀO
+- Câu hỏi hiện tại: {query}
+
+MỤC TIÊU
+- Mở rộng các từ viết tắt phổ biến trong ngữ cảnh hành chính cấp xã/phường.
+- Sửa lỗi chính tả rõ ràng, lỗi gõ, lỗi nói miệng nếu có thể suy ra chắc chắn.
+- Bỏ các từ đệm không cần thiết như "à", "á", "ậy", "nha", "nhỉ" nếu không làm đổi nghĩa.
+- Nếu câu đã rõ và đầy đủ thì giữ nguyên.
+- Nếu không đủ chắc chắn để sửa đúng, giữ nguyên câu hiện tại.
+- Không được thêm thông tin mới ngoài câu hiện tại.
+- Không được đổi tên người, số thứ tự, địa danh, đơn vị hành chính.
+
+QUY TẮC QUAN TRỌNG
+- Chỉ viết lại cho rõ hơn, không được suy diễn thêm.
+- Giữ nguyên đối tượng được hỏi.
+- Giữ nguyên số, tên riêng, chức danh nếu đã đầy đủ.
+- Với từ viết tắt hành chính phổ biến, ưu tiên mở rộng:
+  - sdt -> số điện thoại
+  - ct -> chủ tịch
+  - pct -> phó chủ tịch
+  - bt -> bí thư
+  - kp -> khu phố
+  - ubnd -> ủy ban nhân dân
+  - tp -> thành phố
+- Với lỗi rõ ràng trong ngữ cảnh:
+  - trường khu phố -> trưởng khu phố
+  - trường kp -> trưởng khu phố
+
+VÍ DỤ
+Câu hiện tại: "sdt của chị Thu là gì"
+→ "số điện thoại của chị Thu là gì"
+
+Câu hiện tại: "vậy còn chủ tịch tp là ai"
+→ "vậy còn chủ tịch thành phố là ai"
+
+Câu hiện tại: "trưởng kp 2 của xã là ai"
+→ "trưởng khu phố 2 của xã là ai"
+
+Câu hiện tại: "ct phường là ai?"
+→ "chủ tịch phường là ai?"
+
+Câu hiện tại: "ai là trường kp 8 á?"
+→ "ai là trưởng khu phố 8?"
+
+Câu hiện tại: "bt phường là ai"
+→ "bí thư phường là ai"
+
+Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
+"""
+    prompt = _render_prompt_template(
+        prompt_template,
+        default_prompt,
+        query=query,
+    )
+    try:
+        response = llm_rewrite.invoke(prompt)
+        return response.content.strip()
+    except:
+        return query
+
+def rewrite_query_history(query: str, last_question: str, prompt_template: str = None) -> str:
     default_prompt = f"""Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã.
 
 NHIỆM VỤ
-Viết lại câu hỏi hiện tại thành một câu hỏi độc lập, ngắn gọn, giữ nguyên ý nghĩa.
+Viết lại câu hỏi hiện tại thành đúng 1 câu hỏi độc lập, ngắn gọn, giữ nguyên ý nghĩa gốc.
 
 ĐẦU VÀO
 - Câu trước đó đã được viết lại đầy đủ: {last_question}
 - Câu hỏi hiện tại: {query}
 
-MỤC TIÊU
-- Nếu câu hiện tại thiếu chủ đề / thiếu đối tượng / thiếu ý định hỏi, hãy dùng câu trước để bổ sung.
-- Nếu câu hiện tại đã là một câu độc lập, giữ nguyên.
-- Nếu câu hiện tại có đối tượng mới nhưng đang kế thừa cách hỏi từ câu trước, hãy giữ cách hỏi cũ và thay đối tượng mới vào.
+NGUYÊN TẮC CHUNG
+- Chỉ dùng thông tin có trong 2 câu trên.
+- Không bịa thêm thông tin mới.
 - Nếu không đủ chắc chắn để viết lại đúng, giữ nguyên câu hiện tại.
-- Không được bịa thêm thông tin ngoài 2 câu đã cho.
+- Nếu câu hiện tại đã là câu độc lập, giữ nguyên.
+- Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
 
-QUY TẮC
-1. Nếu câu hiện tại là câu tiếp nối thiếu chủ đề
-Ví dụ: "ở đâu", "bao lâu", "nộp online được không", "cần giấy tờ gì"
-→ thêm chủ đề từ câu trước.
+ƯU TIÊN QUYẾT ĐỊNH
+1. Nếu câu hiện tại là lời chào, cảm ơn, cảm thán, xác nhận ngắn, xúc phạm, hoặc quá mơ hồ không xác định chắc chắn được ý hỏi -> giữ nguyên.
+2. Nếu câu hiện tại đã đủ chủ đề, đối tượng và ý định hỏi -> giữ nguyên.
+3. Nếu câu hiện tại là câu tiếp nối thiếu chủ đề nhưng vẫn giữ ý hỏi cũ -> bổ sung chủ đề từ câu trước.
+4. Nếu câu hiện tại đổi đối tượng mới nhưng giữ cách hỏi từ câu trước -> giữ mẫu hỏi cũ và thay đối tượng mới.
+5. Nếu câu hiện tại chỉ còn trường thông tin cần hỏi (ví dụ: số điện thoại, địa chỉ, email, hotline, lệ phí, hồ sơ, giấy tờ, bao lâu, ở đâu, online được không) -> khôi phục câu hỏi đầy đủ từ câu trước nếu chắc chắn.
+6. Nếu không chắc chắn -> giữ nguyên.
 
-2. Nếu câu hiện tại có đối tượng mới nhưng thiếu ý định hỏi
-Ví dụ: "còn anh Hiệp", "thế chị Thu", "còn trưởng kp 2", "còn ct"
-→ giữ mẫu hỏi của câu trước và thay bằng đối tượng mới.
-
-3. Nếu câu hiện tại đã có đủ chủ đề và ý định hỏi
-→ giữ nguyên.
-
-4. Nếu câu hiện tại chuyển sang chủ đề khác
-→ giữ nguyên, không dùng lịch sử.
-
-5. Nếu câu hiện tại là câu chào hỏi, cảm thán, xúc phạm, hoặc quá mơ hồ không thể xác định chắc chắn
-→ giữ nguyên.
-
-6. Không biến câu hỏi thông tin nhân sự thành câu hỏi thủ tục.
-7. Không biến câu hỏi thủ tục thành câu hỏi nhân sự.
-8. Không đổi tên người, chức danh, địa danh, số hiệu khu phố.
-9. Không thêm các phần như "là gì", "như thế nào", "ở đâu", "bao lâu" nếu câu trước không cho thấy rõ ý định đó.
-10. Ưu tiên an toàn: nếu phân vân, giữ nguyên.
-
+QUY TẮC BẮT BUỘC
+- Không biến câu hỏi thông tin nhân sự thành câu hỏi thủ tục.
+- Không biến câu hỏi thủ tục thành câu hỏi nhân sự.
+- Không đổi tên người, chức danh, địa danh, số hiệu khu phố, số hiệu ấp.
+- Không được làm mất các phần *phân biệt quan trọng* của thủ tục như: "lại", "cấp lại", "trích lục", "bản sao", "có yếu tố nước ngoài", "khu vực biên giới", "thường trú", "tạm trú".
+- Không tự thêm các từ như "là gì", "ở đâu", "bao lâu", "như thế nào" nếu câu trước không cho thấy rõ ý định đó.
+- Nếu sau "còn" là một chủ đề hoặc thủ tục mới rõ ràng, không được dùng chủ đề cũ. Khi thật sự rõ, chỉ giữ cách hỏi cũ và thay bằng chủ đề mới.
 VÍ DỤ
-Câu trước: "đăng ký khai sinh"
-Câu hiện tại: "nộp online được không"
-→ "đăng ký khai sinh nộp online được không"
 
-Câu trước: "chị Thu là ai"
-Câu hiện tại: "anh Hiệp là ai"
-→ "anh Hiệp là ai"
+1. Thiếu chủ đề
+Câu trước: đăng ký khai sinh
+Câu hiện tại: nộp online được không
+Kết quả: đăng ký khai sinh nộp online được không
 
-Câu trước: "số điện thoại của chị Thu là gì"
-Câu hiện tại: "còn anh Hiệp"
-→ "số điện thoại của anh Hiệp là gì"
+Câu trước: đăng ký lại khai sinh
+Câu hiện tại: cần giấy tờ gì
+Kết quả: đăng ký lại khai sinh cần giấy tờ gì
 
-Câu trước: "anh Hiệp giữ chức vụ gì"
-Câu hiện tại: "còn anh Tài"
-→ "anh Tài giữ chức vụ gì"
+2. Đổi đối tượng nhưng giữ mẫu hỏi
+Câu trước: đăng ký kết hôn làm sao/như thế nào
+Câu hiện tại: còn mất cccd
+Kết quả: còn mất cccd làm sao
 
-Câu trước: "ai là trưởng khu phố 1 của xã"
-Câu hiện tại: "còn trưởng kp 2"
-→ "ai là trưởng khu phố 2 của xã"
+Câu trước: ai là trưởng khu phố 1 của xã
+Câu hiện tại: còn trưởng kp 2
+Kết quả: ai là trưởng khu phố 2 của xã
 
-Câu trước: "xã hiện tại có những đặc điểm gì"
-Câu hiện tại: "cần giấy tờ gì"
-→ "cần giấy tờ gì"
+3. Chỉ còn trường thông tin cần hỏi
+Câu trước: địa chỉ ubnd xã ở đâu
+Câu hiện tại: số điện thoại
+Kết quả: số điện thoại của ubnd xã là gì
 
-Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
+Câu trước: đăng ký khai sinh có yếu tố nước ngoài
+Câu hiện tại: lệ phí bao nhiêu
+Kết quả: đăng ký khai sinh có yếu tố nước ngoài lệ phí là bao nhiêu
+
+4. Đại từ hồi chỉ
+Câu trước: phó chủ tịch phụ trách văn hóa là ai
+Câu hiện tại: số của người đó
+Kết quả: số điện thoại của phó chủ tịch phụ trách văn hóa là gì
+
+5. Chuyển chủ đề
+Câu trước: xã hiện tại có những đặc điểm gì
+Câu hiện tại: cần giấy tờ gì
+Kết quả: cần giấy tờ gì
+
+Câu trước: chủ tịch xã là ai
+Câu hiện tại: thủ tục khai sinh cần gì
+Kết quả: thủ tục khai sinh cần gì
+
+6. Xã giao / cảm thán / quá mơ hồ
+Câu trước: đăng ký khai sinh cần gì
+Câu hiện tại: xin chào
+Kết quả: xin chào
+
+Câu trước: chủ tịch xã là ai
+Câu hiện tại: ok vậy thôi
+Kết quả: ok vậy thôi
 """
+#     default_prompt = f"""Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã.
+
+# NHIỆM VỤ
+# Viết lại câu hỏi hiện tại thành một câu hỏi độc lập, ngắn gọn, giữ nguyên ý nghĩa.
+
+# ĐẦU VÀO
+# - Câu trước đó đã được viết lại đầy đủ: {last_question}
+# - Câu hỏi hiện tại: {query}
+
+# MỤC TIÊU
+# - Nếu câu hiện tại thiếu chủ đề / thiếu đối tượng / thiếu ý định hỏi, hãy dùng câu trước để bổ sung.
+# - Nếu câu hiện tại đã là một câu độc lập -> giữ nguyên.
+# - Bỏ các từ đệm không cần thiết như "à", "á", "ậy", "nha", "nhỉ" nếu không làm đổi nghĩa.
+# - Nếu câu hiện tại có đối tượng mới nhưng đang kế thừa cách hỏi từ câu trước, hãy giữ cách hỏi cũ và thay đối tượng mới vào.
+# - Nếu không đủ chắc chắn để viết lại đúng, giữ nguyên câu hiện tại.
+# - Không được bịa thêm thông tin ngoài 2 câu đã cho.
+
+# QUY TẮC
+# 1. Nếu câu hiện tại là câu tiếp nối thiếu chủ đề
+# Ví dụ: "ở đâu", "bao lâu", "nộp online được không", "cần giấy tờ gì"
+# → thêm chủ đề từ câu trước.
+# Câu trước: "đăng ký khai sinh"
+# Câu hiện tại: "nộp online được không"
+# → "đăng ký khai sinh nộp online được không"
+
+# 2. Nếu câu hiện tại có đối tượng mới nhưng thiếu ý định hỏi
+# Ví dụ: "còn anh Hiệp", "thế chị Thu", "còn trưởng kp 2", "còn ct", "ông ấy", "anh ấy", "cô ấy", "bà ấy"
+# → giữ mẫu hỏi của câu trước và thay bằng đối tượng mới.
+# Câu trước: "bí thư phường là ai"
+# Câu hiện tại: "số của anh ấy là"
+# → "số điện thoại của bí thư phường là"
+
+# Câu trước: "sdt của chị Thu là gì"
+# Câu hiện tại: "còn anh Hiệp"
+# → "số điện thoại của anh Hiệp là gì"
+
+# Câu trước: "ai là trưởng khu phố 1 của xã"
+# Câu hiện tại: "còn trưởng kp 2"
+# → "ai là trưởng khu phố 2 của xã"
+
+# 3. Nếu câu hiện tại đã có đủ chủ đề và ý định hỏi
+# → giữ nguyên.
+
+# 4. Nếu câu hiện tại chuyển sang chủ đề khác
+# → giữ nguyên, không dùng lịch sử.
+# Câu trước: "xã hiện tại có những đặc điểm gì"
+# Câu hiện tại: "cần giấy tờ gì"
+# → "cần giấy tờ gì"
+
+# 5. Nếu câu hiện tại là câu chào hỏi, cảm thán, xúc phạm, hoặc quá mơ hồ không thể xác định chắc chắn
+# → giữ nguyên.
+
+# Câu trước: "xã hiện tại có những đặc điểm gì"
+# Câu hiện tại: "xin chào"
+# → "xin chào"
+
+# 6. Không biến câu hỏi thông tin nhân sự thành câu hỏi thủ tục.
+# 7. Không biến câu hỏi thủ tục thành câu hỏi nhân sự.
+# 8. Không đổi tên người, chức danh, địa danh, số hiệu khu phố.
+# 9. Không thêm các phần như "là gì", "như thế nào", "ở đâu", "bao lâu" nếu câu trước không cho thấy rõ ý định đó.
+# 10. Ưu tiên an toàn: nếu phân vân, giữ nguyên.
+
+# Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
+# """
+
     prompt = _render_prompt_template(
         prompt_template,
         default_prompt,
@@ -985,6 +1131,104 @@ Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
         return response.content.strip()
     except:
         return query
+
+# def rewrite_query_history(query: str, last_question: str, prompt_template: str = None) -> str:
+#     default_prompt = f"""Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã/phường.
+
+# Nhiệm vụ:
+# Viết lại câu hỏi hiện tại thành 1 câu hỏi độc lập, ngắn gọn, đúng nghĩa, chỉ dựa vào:
+# - Câu trước đó đã được viết lại đầy đủ: {last_question}
+# - Câu hỏi hiện tại: {query}
+
+# Mục tiêu:
+# - Nếu câu hiện tại thiếu chủ đề, đối tượng hoặc ý định hỏi, dùng câu trước để bổ sung.
+# - Nếu câu hiện tại đã đủ nghĩa và độc lập, giữ nguyên.
+# - Nếu câu hiện tại có đối tượng mới nhưng đang kế thừa cách hỏi từ câu trước, giữ cách hỏi cũ và thay đối tượng mới.
+# - Nếu câu hiện tại hỏi thuộc tính khác của cùng một chủ thể trong câu trước, giữ chủ thể đó và thay thuộc tính mới vào.
+# - Nếu câu hiện tại dùng đại từ như "ông ấy", "anh ấy", "chị ấy", "cô ấy", "bà ấy", "người đó", "người này", "vị đó", và câu trước có 1 đối tượng rõ ràng, thay đại từ bằng đối tượng đó.
+# - Bỏ các từ đệm không cần thiết như "à", "á", "ậy", "nha", "nhỉ" nếu không làm đổi nghĩa.
+# - Không được bịa thêm thông tin ngoài 2 câu đã cho.
+# - Nếu không chắc, giữ nguyên câu hiện tại.
+
+# Luật:
+# 1. Nếu câu hiện tại là câu tiếp nối thiếu chủ đề
+# Ví dụ: "ở đâu", "bao lâu", "nộp online được không", "cần giấy tờ gì"
+# → thêm chủ đề từ câu trước.
+
+# 2. Nếu câu hiện tại có đối tượng mới nhưng thiếu ý định hỏi
+# Ví dụ: "còn anh Hiệp", "thế chị Thu", "còn trưởng kp 2", "còn ct"
+# → giữ mẫu hỏi của câu trước và thay đối tượng mới.
+
+# 3. Nếu câu hiện tại hỏi thuộc tính khác của cùng một chủ thể
+# Ví dụ: "dân số thì sao", "giờ làm việc thì sao", "số điện thoại nữa", "diện tích nữa"
+# → giữ chủ thể ở câu trước và thay thuộc tính mới vào.
+
+# 4. Nếu câu hiện tại dùng đại từ thay thế
+# Ví dụ: "ông ấy", "anh ấy", "chị ấy", "bà ấy", "người đó", "người này"
+# → thay bằng đối tượng rõ ràng ở câu trước nếu xác định chắc chắn.
+
+# 5. Các từ nối tiếp như "còn", "vậy còn", "thế", "thì sao", "nữa" có thể là câu hỏi theo ngữ cảnh.
+
+# 6. Nếu câu hiện tại đã có đủ chủ đề và ý định hỏi
+# → giữ nguyên.
+
+# 7. Nếu câu hiện tại chuyển sang chủ đề khác
+# → giữ nguyên, không dùng lịch sử.
+
+# 8. Nếu câu hiện tại là câu chào hỏi, cảm thán, xúc phạm, hoặc quá mơ hồ không thể xác định chắc chắn
+# → giữ nguyên.
+
+# 9. Không biến câu hỏi thủ tục thành câu hỏi nhân sự.
+# 10. Không biến câu hỏi nhân sự thành câu hỏi thủ tục.
+# 11. Không đổi tên người, chức danh, địa danh, tên đơn vị, số hiệu khu phố.
+# 12. Không thêm thông tin không có trong 2 câu.
+# 13. Ưu tiên an toàn: nếu phân vân, giữ nguyên câu hiện tại.
+
+# Ví dụ:
+# Câu trước: "đăng ký khai sinh"
+# Câu hiện tại: "nộp online được không"
+# → "đăng ký khai sinh nộp online được không"
+
+# Câu trước: "sdt của chị Thu là gì"
+# Câu hiện tại: "còn anh Hiệp"
+# → "số điện thoại của anh Hiệp là gì"
+
+# Câu trước: "bí thư phường là ai"
+# Câu hiện tại: "số của ông ấy là gì"
+# → "số điện thoại của bí thư phường là gì"
+
+# Câu trước: "ai là trưởng khu phố 1 của xã"
+# Câu hiện tại: "còn trưởng kp 2"
+# → "ai là trưởng khu phố 2 của xã"
+
+# Câu trước: "phường có diện tích bao nhiêu"
+# Câu hiện tại: "dân số thì sao"
+# → "phường có dân số bao nhiêu"
+
+# Câu trước: "địa chỉ ubnd phường ở đâu"
+# Câu hiện tại: "giờ làm việc thì sao"
+# → "giờ làm việc của ubnd phường là gì"
+
+# Câu trước: "xã hiện tại có những đặc điểm gì"
+# Câu hiện tại: "cần giấy tờ gì"
+# → "cần giấy tờ gì"
+
+# Câu trước: bí thư phường là ai"
+# Câu hiện tại: "xin chào"
+# → "xin chào"
+
+# Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích."""
+#     prompt = _render_prompt_template(
+#         prompt_template,
+#         default_prompt,
+#         query=query,
+#         last_question=last_question,
+#     )
+#     try:
+#         response = llm_rewrite.invoke(prompt)
+#         return response.content.strip()
+#     except:
+#         return query
 
 def llm_get_info(query: str) -> str:
     prompt = f"""
@@ -1021,37 +1265,6 @@ Kết quả:
     return prompt
 
 def llm_answer_procedure(question: str, context: str, prompt_template: str = None) -> str:
-#     prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
-
-# Hãy trả lời chỉ dựa trên thông tin có trong tài liệu bên dưới.
-# Không thêm quy định, thủ tục, thời hạn, lệ phí hoặc cơ quan xử lý nếu tài liệu không nêu.
-
-# Nếu tài liệu đủ thông tin, hãy trả lời trực tiếp bằng văn phong tự nhiên, rõ ràng.
-# Nếu tài liệu chỉ khớp một phần nhưng vẫn có thể hướng dẫn người dùng, hãy trả lời theo hướng phù hợp nhất và nêu điều kiện ngắn gọn khi cần.
-# Chỉ khi tài liệu hoàn toàn không liên quan mới trả lời đúng nguyên văn:
-# Hiện chưa có thông tin trong hệ thống.
-
-# === TÀI LIỆU ===
-# {context}
-
-# === CÂU HỎI ===
-# {question}
-
-# Yêu cầu:
-# - Trả lời tự nhiên, thân thiện, không quá máy móc.
-# - Luôn mở đầu câu trả lời là "Thưa anh/chị" và kết thúc bằng "Thân mến!" 
-# - Ưu tiên trả lời thẳng vào ý người dùng hỏi.
-# - Không cần luôn mở đầu bằng “Theo tài liệu”.
-# - Chỉ nêu điều kiện khi thật sự cần để tránh hiểu sai.
-# - Nếu tài liệu có nêu hồ sơ, nơi nộp, thời gian giải quyết thì có thể tóm tắt ngắn gọn.
-# - Không bịa thêm thông tin ngoài tài liệu.
-
-# Quy tắc xét duyệt hồ sơ (BẮT BUỘC TUÂN THỦ STRICTLY):
-# - Các mục liệt kê trong phần "Hồ sơ gồm" là điều kiện bắt buộc.
-# - Ký tự "/" hoặc chữ "hoặc" có nghĩa là chỉ cần 1 trong các loại giấy tờ đó.
-# - NẾU người dùng hỏi về việc thiếu/mất một loại giấy tờ, bạn PHẢI trả lời rõ là KHÔNG THỂ thực hiện thủ tục, TRỪ KHI họ có giấy tờ thay thế hợp lệ ghi trong tài liệu.
-# - Ví dụ: Tài liệu ghi "CCCD/Hộ chiếu", nếu người dùng mất CCCD, phải hướng dẫn họ dùng Hộ chiếu thay thế. Nếu không có cả hai, không thể đăng ký.
-# """
     default_prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
 
 Hãy trả lời chỉ dựa trên thông tin có trong tài liệu bên dưới.
@@ -1108,7 +1321,6 @@ Quy tắc xét duyệt hồ sơ (BẮT BUỘC TUÂN THỦ STRICTLY):
         return response.content.strip()
     except:
         return question
-
 
 def llm_answer(question: str, context: str, prompt_template: str = None) -> str:
     default_prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
