@@ -3,6 +3,8 @@ import re
 import uuid
 import time
 import hashlib
+import random
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
@@ -14,7 +16,7 @@ from corn import supabase
 from flask import Response, stream_with_context
 import json
 from normalize import SINGLE_TOKEN_MAP, CONTEXT_RULES, BANNED_KEYWORDS, normalize_text, normalize_subject_value, AbbreviationResolver
-from model import rewrite_query, rewrite_query_history, detect_query, llm_answer, llm_answer_procedure, classify_category, check_classify_phan_anh_kien_nghi, check_classify_tuong_tac
+from model import rewrite_query, rewrite_query_history, detect_query, llm_answer, llm_answer_stream, llm_answer_procedure, llm_answer_procedure_stream, classify_category, check_classify_phan_anh_kien_nghi, check_classify_tuong_tac
 from test_demo import classify_v2
 from embedding import get_proc_embedding, get_embedding
 from utils import SUBJECT_KEYWORDS, GENERAL_INFO_SUBJECT_KEYWORDS, classify, prepare_subject_keywords
@@ -111,6 +113,7 @@ resolver = AbbreviationResolver(SINGLE_TOKEN_MAP, CONTEXT_RULES)
 cache_backend = create_cache_backend()
 print("Cache backend:", cache_backend.backend_name)
 print("Cache health:", cache_backend.health())
+_log_executor = ThreadPoolExecutor(max_workers=4)
 _embedding_cache = "embedding"
 _classify_llm_cache = "classify_llm"
 _detect_query_cache = "detect_query"
@@ -124,8 +127,29 @@ _classify_phan_anh_cache = "classify_phan_anh"
 _classify_tong_quan_cache = "classify_tong_quan"
 _classify_llm_procedure_cache = "classify_llm_procedure"
 _session_history_cache = "session_history"
+_tenant_exists_cache = "tenant_exists"
+_tenant_id_map_cache = "tenant_id_map"
 _CACHE_MISS = object()
 _NULL_SENTINEL = "__CACHE_NULL_SENTINEL__"
+
+CACHE_KEY_VERSION = "v2"
+CACHE_TTL_JITTER_RATIO = 0.10
+CACHE_QUERY_STOPWORDS = {
+    "ah",
+    "ak",
+    "cho",
+    "giup",
+    "ha",
+    "nhe",
+    "nha",
+    "nho",
+    "oi",
+    "roi",
+    "the",
+    "thi",
+    "vay",
+    "voi",
+}
 
 EMBEDDING_CACHE_TTL = 30 * 60
 LLM_CLASSIFY_CACHE_TTL = 10 * 60
@@ -140,6 +164,8 @@ CLASSIFY_PHAN_ANH_CACHE_TTL = 5 * 60
 CLASSIFY_TONG_QUAN_CACHE_TTL = 5 * 60
 CLASSIFY_LLM_PROCEDURE_CACHE_TTL = 10 * 60
 SESSION_HISTORY_CACHE_TTL = 10 * 60
+TENANT_EXISTS_CACHE_TTL = 10 * 60
+TENANT_ID_MAP_CACHE_TTL = 10 * 60
 
 EMBEDDING_CACHE_MAX = 2000
 LLM_CLASSIFY_CACHE_MAX = 1000
@@ -154,6 +180,8 @@ CLASSIFY_PHAN_ANH_CACHE_MAX = 500
 CLASSIFY_TONG_QUAN_CACHE_MAX = 500
 CLASSIFY_LLM_PROCEDURE_CACHE_MAX = 500
 SESSION_HISTORY_CACHE_MAX = 5000
+TENANT_EXISTS_CACHE_MAX = 2000
+TENANT_ID_MAP_CACHE_MAX = 2000
 SESSION_HISTORY_ITEMS_MAX = 5
 
 
@@ -166,7 +194,36 @@ def _cache_get(cache, key):
 
 def _cache_set(cache, key, value, ttl_seconds, max_items):
     value_to_cache = _NULL_SENTINEL if value is None else value
-    cache_backend.set(cache, key, value_to_cache, ttl_seconds, max_items)
+    cache_backend.set(cache, key, value_to_cache, _jitter_ttl(ttl_seconds), max_items)
+
+
+def _jitter_ttl(ttl_seconds):
+    ttl = int(ttl_seconds or 0)
+    if ttl <= 1:
+        return 1
+
+    jitter = max(1, int(ttl * CACHE_TTL_JITTER_RATIO))
+    return max(1, ttl + random.randint(-jitter, jitter))
+
+
+def _hash_text(value: str):
+    return hashlib.sha1((value or "").encode("utf-8")).hexdigest()
+
+
+def _canonical_query_for_cache(user_text: str):
+    normalized = normalize_text(user_text or "")
+    if not normalized:
+        return ""
+
+    tokens = [t for t in normalized.split() if t and t not in CACHE_QUERY_STOPWORDS]
+    return " ".join(tokens)
+
+
+def _cache_key(feature: str, *parts):
+    normalized_parts = [CACHE_KEY_VERSION, feature]
+    for part in parts:
+        normalized_parts.append("" if part is None else str(part).strip())
+    return "|".join(normalized_parts)
 
 
 def _clone_rows(rows):
@@ -204,6 +261,13 @@ def tenant_code_from_id(tenant_id: str):
     if tenant_id is None:
         return None
 
+    key = _cache_key("tenant_id_map", tenant_id)
+    cached = _cache_get(_tenant_id_map_cache, key)
+    if cached is not _CACHE_MISS:
+        if cached == _NULL_SENTINEL:
+            return None
+        return cached
+
     # Giả định bảng tenants có cột id (primary key) và tenant_code
     response = (
         supabase.table("tenants")
@@ -214,7 +278,15 @@ def tenant_code_from_id(tenant_id: str):
     )
     row = (response.data or [None])[0] if isinstance(response.data, list) else response.data
     code = (row or {}).get("tenant_code") if isinstance(row, dict) else None
-    return normalize_tenant_code(code)
+    normalized_code = normalize_tenant_code(code)
+    _cache_set(
+        _tenant_id_map_cache,
+        key,
+        normalized_code,
+        TENANT_ID_MAP_CACHE_TTL,
+        TENANT_ID_MAP_CACHE_MAX,
+    )
+    return normalized_code
 
 
 def ensure_tenant_code(tenant_id=None, tenant_code=None):
@@ -243,17 +315,31 @@ def tenant_exists(tenant_code: str) -> bool:
     if tenant_code is None:
         return False
 
+    key = _cache_key("tenant_exists", tenant_code)
+    cached = _cache_get(_tenant_exists_cache, key)
+    if cached is not _CACHE_MISS:
+        return bool(cached)
+
     response = supabase.table("tenants") \
         .select("tenant_code") \
         .eq("tenant_code", tenant_code) \
         .limit(1) \
         .execute()
 
-    return bool(response.data)
+    exists = bool(response.data)
+    _cache_set(
+        _tenant_exists_cache,
+        key,
+        exists,
+        TENANT_EXISTS_CACHE_TTL,
+        TENANT_EXISTS_CACHE_MAX,
+    )
+    return exists
 
 
 def get_embedding_cached(user_text: str):
-    key = normalize_text(user_text or "")
+    canonical = _canonical_query_for_cache(user_text)
+    key = _cache_key("embedding", _hash_text(canonical))
     cached = _cache_get(_embedding_cache, key)
     if cached is not _CACHE_MISS:
         return cached
@@ -264,10 +350,13 @@ def get_embedding_cached(user_text: str):
 
 
 def classify_llm_cached(user_text: str, prompt_template: str = None):
+    canonical = _canonical_query_for_cache(user_text)
     template_hash = hashlib.sha1((prompt_template or "").encode("utf-8")).hexdigest()
-    key = (normalize_text(user_text or ""), template_hash)
+    key = _cache_key("classify_llm", _hash_text(canonical), template_hash)
     cached = _cache_get(_classify_llm_cache, key)
     if cached is not _CACHE_MISS:
+        if cached == _NULL_SENTINEL:
+            return None
         return cached
 
     value = classify_category(user_text, prompt_template=prompt_template)
@@ -275,7 +364,7 @@ def classify_llm_cached(user_text: str, prompt_template: str = None):
     return value
 
 def resolve_target_tenant_code_cached(current_tenant_code, scope):
-    key = (current_tenant_code, scope)
+    key = _cache_key("resolve_tenant", current_tenant_code, scope)
     cached = _cache_get(_resolve_tenant_cache, key)
 
     if cached is not _CACHE_MISS:
@@ -325,7 +414,7 @@ def get_active_prompt_templates_map():
 
 
 def get_active_prompt_templates_map_cached():
-    key = "active_prompt_templates"
+    key = _cache_key("prompt_templates", "active")
     cached = _cache_get(_prompt_templates_cache, key)
     if cached is not _CACHE_MISS:
         return dict(cached)
@@ -343,7 +432,8 @@ def get_active_prompt_templates_map_cached():
 
 def classify_v2_cached(normalized_query: str, prepared, tenant_code: str):
     """Cache wrapper for classify_v2 - rule-based category/subject classification"""
-    key = f"classify_v2_{tenant_code}_{hashlib.md5(normalized_query.encode()).hexdigest()}"
+    canonical = _canonical_query_for_cache(normalized_query)
+    key = _cache_key("classify_v2", tenant_code, _hash_text(canonical))
     cached = _cache_get(_classify_v2_cache, key)
     if cached is not _CACHE_MISS:
         return cached
@@ -355,9 +445,13 @@ def classify_v2_cached(normalized_query: str, prepared, tenant_code: str):
 
 def classify_tuong_tac_cached(user_message: str, tenant_code: str, prompt_template: str = None):
     """Cache wrapper for classify_with_tuong_tac - interaction subject classification"""
-    key = f"tuong_tac_{tenant_code}_{hashlib.md5(user_message.encode()).hexdigest()}"
+    canonical = _canonical_query_for_cache(user_message)
+    template_hash = _hash_text(prompt_template or "")
+    key = _cache_key("classify_tuong_tac", tenant_code, _hash_text(canonical), template_hash)
     cached = _cache_get(_classify_tuong_tac_cache, key)
     if cached is not _CACHE_MISS:
+        if cached == _NULL_SENTINEL:
+            return None
         return cached
     
     result = classify_with_tuong_tac(user_message, prompt_template=prompt_template)
@@ -367,9 +461,13 @@ def classify_tuong_tac_cached(user_message: str, tenant_code: str, prompt_templa
 
 def classify_phan_anh_cached(user_message: str, tenant_code: str, prompt_template: str = None):
     """Cache wrapper for classify_with_phan_anh - feedback/suggestion subject classification"""
-    key = f"phan_anh_{tenant_code}_{hashlib.md5(user_message.encode()).hexdigest()}"
+    canonical = _canonical_query_for_cache(user_message)
+    template_hash = _hash_text(prompt_template or "")
+    key = _cache_key("classify_phan_anh", tenant_code, _hash_text(canonical), template_hash)
     cached = _cache_get(_classify_phan_anh_cache, key)
     if cached is not _CACHE_MISS:
+        if cached == _NULL_SENTINEL:
+            return None
         return cached
     
     result = classify_with_phan_anh(user_message, prompt_template=prompt_template)
@@ -379,9 +477,13 @@ def classify_phan_anh_cached(user_message: str, tenant_code: str, prompt_templat
 
 def classify_tong_quan_cached(user_message: str, tenant_code: str, prompt_template: str = None):
     """Cache wrapper for classify_with_tong_quan - general information subject classification"""
-    key = f"tong_quan_{tenant_code}_{hashlib.md5(user_message.encode()).hexdigest()}"
+    canonical = _canonical_query_for_cache(user_message)
+    template_hash = _hash_text(prompt_template or "")
+    key = _cache_key("classify_tong_quan", tenant_code, _hash_text(canonical), template_hash)
     cached = _cache_get(_classify_tong_quan_cache, key)
     if cached is not _CACHE_MISS:
+        if cached == _NULL_SENTINEL:
+            return None
         return cached
     
     result = classify_with_tong_quan(user_message, prompt_template=prompt_template)
@@ -391,9 +493,13 @@ def classify_tong_quan_cached(user_message: str, tenant_code: str, prompt_templa
 
 def classify_llm_procedure_cached(user_message: str, prompt_template: str = None):
     """Cache wrapper for classify_llm - procedure metadata extraction & classification"""
-    key = f"classify_llm_proc_{hashlib.md5(user_message.encode()).hexdigest()}"
+    canonical = _canonical_query_for_cache(user_message)
+    template_hash = _hash_text(prompt_template or "")
+    key = _cache_key("classify_llm_procedure", _hash_text(canonical), template_hash)
     cached = _cache_get(_classify_llm_procedure_cache, key)
     if cached is not _CACHE_MISS:
+        if cached == _NULL_SENTINEL:
+            return None
         return cached
     
     result = classify_llm(user_message, prompt_template=prompt_template)
@@ -408,12 +514,13 @@ def pick_prompt_template(templates_map, prompt_type: str):
 
 
 def invalidate_prompt_templates_cache():
-    cache_backend.delete(_prompt_templates_cache, "active_prompt_templates")
+    cache_backend.delete(_prompt_templates_cache, _cache_key("prompt_templates", "active"))
 
 
 def detect_query_cached(user_text: str, context: str):
+    canonical = _canonical_query_for_cache(user_text)
     context_hash = hashlib.sha1((context or "").encode("utf-8")).hexdigest()
-    key = (normalize_text(user_text or ""), context_hash)
+    key = _cache_key("detect_query", _hash_text(canonical), context_hash)
     cached = _cache_get(_detect_query_cache, key)
     if cached is not _CACHE_MISS:
         return cached
@@ -424,7 +531,15 @@ def detect_query_cached(user_text: str, context: str):
 
 
 def search_documents_full_hybrid_v6_cached(normalized_query, query_embedding, category, subject, p_limit=5, tenant=None):
-    key = (tenant, normalized_query, category, subject, p_limit)
+    if category == _NULL_SENTINEL:
+        category = None
+    if subject == _NULL_SENTINEL:
+        subject = None
+    if tenant == _NULL_SENTINEL:
+        tenant = None
+
+    canonical = _canonical_query_for_cache(normalized_query)
+    key = _cache_key("search_v6", tenant, _hash_text(canonical), category, subject, p_limit)
     cached = _cache_get(_search_v6_cache, key)
     if cached is not _CACHE_MISS:
         return _clone_rows(cached)
@@ -1605,6 +1720,22 @@ def create_log(log_data):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+def enqueue_log(log_data):
+    if not isinstance(log_data, dict):
+        return
+
+    payload = dict(log_data)
+
+    def _write_log(record):
+        try:
+            supabase.table("log_query").insert(record).execute()
+            _update_session_history_cache(record)
+        except Exception as e:
+            print(f"enqueue_log failed: {e}")
+
+    _log_executor.submit(_write_log, payload)
+
 @app.route('/api/delete-alias/<alias_id>', methods=['DELETE'])
 def delete_alias(alias_id):
     try:
@@ -1917,7 +2048,7 @@ def get_related_chunks(supabase, tenant_code: str, source_chunk_id: str):
 
 
 def get_related_chunks_cached(tenant_code: str, source_chunk_id: str):
-    key = (tenant_code, source_chunk_id)
+    key = _cache_key("related_chunks", tenant_code, source_chunk_id)
     cached = _cache_get(_related_chunks_cache, key)
     if cached is not _CACHE_MISS:
         return _clone_rows(cached)
@@ -1928,7 +2059,7 @@ def get_related_chunks_cached(tenant_code: str, source_chunk_id: str):
 
 
 def _session_history_cache_key(session_id: str, tenant_code: str):
-    return (tenant_code, session_id)
+    return _cache_key("session_history", tenant_code, session_id)
 
 
 def get_recent_session_history_cached(session_id: str, tenant_code: str, limit: int = 2):
@@ -2043,14 +2174,46 @@ def chat_stream():
         print("Session:", session_id)
         user_message = data.get('message', '').strip()
         origin_mess = user_message
-        use_llm = data.get('use_llm', False)
-        chunk_generate = data.get("chunk_limit", 1)
+        try:
+            chunk_generate = int(data.get("chunk_limit", 1))
+        except (TypeError, ValueError):
+            chunk_generate = 1
+        chunk_generate = max(1, min(chunk_generate, 6))
 
         # Hỗ trợ cả tenant_id và tenant_code
         tenant_id = data.get("tenant_id")
         raw_tenant_code = data.get("tenant_code")
         tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
         log_data = {}
+
+        LOG_FLUSH_INTERVAL_SECONDS = 0.08
+        LOG_BUFFER_MAX = 64
+        pending_logs = []
+        last_log_flush_at = time.perf_counter()
+
+        def flush_logs(force=False):
+            nonlocal last_log_flush_at
+            if not pending_logs:
+                return
+
+            now = time.perf_counter()
+            if not force and (now - last_log_flush_at) < LOG_FLUSH_INTERVAL_SECONDS:
+                return
+
+            batch = "\n".join(pending_logs)
+            pending_logs.clear()
+            last_log_flush_at = now
+            yield f"data: {json.dumps({'log': batch}, ensure_ascii=False)}\n\n"
+
+        def emit_log(message, force=False):
+            if message is None:
+                return
+
+            if len(pending_logs) >= LOG_BUFFER_MAX:
+                pending_logs.pop(0)
+            pending_logs.append(str(message))
+            yield from flush_logs(force=force)
+
         if err:
             yield f"data: {json.dumps({'replies': err, 'chunks': []})}\n\n"
             return
@@ -2058,12 +2221,14 @@ def chat_stream():
         if not tenant_exists(tenant_code):
             yield f"data: {json.dumps({'replies': 'Tenant được chọn không tồn tại trong hệ thống.', 'chunks': []})}\n\n"
             return
+        
+        yield from emit_log(f"Đã nhận câu hỏi anh/chị: {origin_mess}")
 
         try:
             prompt_templates = get_active_prompt_templates_map_cached()
         except Exception as e:
             prompt_templates = {}
-            yield f"data: {json.dumps({'log': f'Không thể tải prompt templates: {str(e)}'})}\n\n"
+            yield from emit_log(f"Không thể tải prompt templates: {str(e)}", force=True)
 
         history_rewrite_prompt = pick_prompt_template(prompt_templates, "history_rewrite")
         classify_category_prompt = pick_prompt_template(prompt_templates, "classify_category")
@@ -2078,19 +2243,31 @@ def chat_stream():
 
         history_data = get_recent_session_history_cached(session_id, tenant_code, limit=2)
 
-        help_content = "Kính chào anh/chị! Rất vui được hỗ trợ anh/chị. Anh/chị có thể hỏi về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường. Anh/chị cần giúp đỡ về vấn đề gì ạ?"
+        help_content = [
+            "Kính chào anh/chị! ",
+            "Rất vui được hỗ trợ anh/chị. ",
+            "Anh/chị có thể hỏi về các thủ tục hành chính, thông tin chung, ",
+            "hoặc tổ chức bộ máy của phường. ",
+            "Anh/chị cần giúp đỡ về vấn đề gì ạ?"
+        ]
+
+        thank_you_content = ["Cảm ơn anh/chị đã đặt câu hỏi. ", "Hy vọng những thông tin", "trên sẽ hữu ích cho anh/chị. Nếu còn thắc mắc nào khác,", "anh/chị đừng ngần ngại"," hỏi thêm nhé. Chúc anh/chị một ngày tốt lành!"]
+
         out_of_score_content = "Nội dung anh/chị hỏi nằm ngoài phạm vi hỗ trợ của hệ thống.\nAnh/chị vui lòng liên hệ đơn vị phù hợp hoặc đặt câu hỏi liên quan đến thủ tục hành chính để được hỗ trợ."
         not_have_content = "Dạ, hiện tại hệ thống đang cập nhật thêm thông tin về phường, các thủ tục để hỗ trợ anh/chị tốt hơn ạ. Anh/chị còn câu hỏi nào thắc mắc không ạ?" 
         banned_replies = "Dạ em chỉ hỗ trợ anh/chị về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường thôi ạ. Anh/chị vui lòng đặt câu hỏi liên quan đến những chủ đề này để được hỗ trợ tốt nhất nhé."
 
-        yield f"data: {json.dumps({'log': f'Nhận message...'})}\n\n"
-        yield f"data: {json.dumps({'log': f'Kiểm tra viết tắt'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'Nhận message...'})}\n\n"
+
+        # yield f"data: {json.dumps({'log': f'Kiểm tra viết tắt'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'Xử lý thông tin câu hỏi'})}\n\n"
         result = resolver.process(user_message)
         user_message = result["expanded"]
         normalized_query = result["normalized"]
 
-        yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
-        yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
+        yield from emit_log("Đang xử lý nội dung câu hỏi\n")
         matched_keyword = next(
             (
                 kw for kw in BANNED_KEYWORDS
@@ -2111,12 +2288,13 @@ def chat_stream():
             # log_data["response_time_ms"]= round(duration / 1000,2)
             # create_log(log_data)
             # yield f"data: {json.dumps({'log': f'[Blocked] Query: {user_message} => keyword: {matched_keyword}'})}\n\n"
+            yield from flush_logs(force=True)
             yield f"data: {json.dumps({'replies': banned_replies, 'chunks': []})}\n\n"
             return
 
         if not history_data:
             start = time.perf_counter()
-            yield f"data: {json.dumps({'log': f'Kiểm tra & xử lý câu hỏi hoàn chỉnh'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'Kiểm tra & xử lý câu hỏi hoàn chỉnh'})}\n\n"
             user_message = rewrite_query(user_message, prompt_template=None)
 
             normalized_query = normalize_text(user_message)
@@ -2124,10 +2302,10 @@ def chat_stream():
             end = time.perf_counter()
             duration = (end - start) * 1000 
 
-            yield f"data: {json.dumps({'log': f'[{round(duration / 1000,2)}s] - Câu hỏi hoàn chỉnh (không có lịch sử hội thoại): {user_message}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'[{round(duration / 1000,2)}s] - Câu hỏi hoàn chỉnh (không có lịch sử hội thoại): {user_message}'})}\n\n"
 
         if history_data:
-            yield f"data: {json.dumps({'log': f'Kiểm tra lịch sử hội thoại'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'Kiểm tra lịch sử hội thoại'})}\n\n"
 
             # last_answer = history_data[0]["answer"]
             # print(f"Câu trả lời trước: {last_answer}")
@@ -2137,49 +2315,59 @@ def chat_stream():
             user_message = rewrite_query_history(user_message, last_question, prompt_template=history_rewrite_prompt)
             normalized_query = normalize_text(user_message)
 
-            yield f"data: {json.dumps({'log': f'Câu hỏi hoàn chỉnh: {user_message}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'Câu hỏi hoàn chỉnh: {user_message}'})}\n\n"
 
-        yield f"data: {json.dumps({'log': f'Normalized: {normalized_query}'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'Normalized: {normalized_query}'})}\n\n"
 
-        res = classify_v2(normalized_query, PREPARED)
+        yield from emit_log("Đang xác định thông tin cần tra cứu")
+
+        res = classify_v2_cached(normalized_query, PREPARED, tenant_code)
         category, subject = res["category"], res["subject"]
-        yield f"data: {json.dumps({'log': f'Category: {category}, Subject: {subject}'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'Category: {category}, Subject: {subject}'})}\n\n"
+        
 
         if res["need_llm"]:
-            re_check = True
-            yield f"data: {json.dumps({'log': f'Bắt đầu sử dụng LLM để trích xuất'})}\n\n"
+            print(f"Cần LLM để phân loại thêm, đang thực hiện phân loại bằng LLM...")
+            # yield f"data: {json.dumps({'log': f'Bắt đầu sử dụng LLM để trích xuất'})}\n\n"
             category_llm = classify_llm_cached(user_message, prompt_template=classify_category_prompt)
-            yield f"data: {json.dumps({'log': f'LLM classify => Category: {category_llm}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'LLM classify => Category: {category_llm}'})}\n\n"
 
             category = normalize_llm_label(category_llm)
         
+        print(f"Category: {category}")
+        
         if category == "chu_de_cam":
+            yield from flush_logs(force=True)
             yield f"data: {json.dumps({'replies': banned_replies, 'chunks': []})}\n\n"
             return
             
         if category == "thu_tuc_hanh_chinh":
-            meta = classify_llm(user_message, prompt_template=classify_subject_procedure_prompt)
+            yield from emit_log("=> Đang xác định các thủ tục liên quan")
+            meta = classify_llm_procedure_cached(user_message, prompt_template=classify_subject_procedure_prompt)
 
             if not meta or not isinstance(meta, dict):
-                return []
+                return
 
             query_mode = meta.get("query_mode")
             # print(f"Query mode: {query_mode}")
 
             procedures = meta.get("unit") or []
             if not procedures:
-                return []
+                return
 
             chunk_response = []
-            yield f"data: {json.dumps({'log': f'=> Phân tích thủ tục : {query_mode}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'=> Phân tích thủ tục : {query_mode}'})}\n\n"
 
             if query_mode == "single_procedure":
                 procedure_name = procedures[0].get("procedure")
                 procedure_action = procedures[0].get("procedure_action")
                 special_contexts = procedures[0].get("special_contexts") or []
 
-                yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
-                yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
+
+                yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}")
+                yield from emit_log("Đang tìm các tài liệu liên quan")
+                # yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
+                # yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
                 response = supabase.rpc(
                     "search_documents_full_hybrid_thu_tuc_v1",
                     {
@@ -2202,8 +2390,9 @@ def chat_stream():
                     procedure_action = proc['procedure_action']
                     special_contexts = proc['special_contexts']
                     # print(f"Thủ tục chính: {proc['procedure']} - {proc['subject']}")
-                    yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
-                    yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
+                    yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}")
+                    yield from emit_log("Đang tìm các tài liệu liên quan")
+                    # yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
                     response = supabase.rpc(
                         "search_documents_full_hybrid_thu_tuc_v1",
                         {
@@ -2229,18 +2418,22 @@ def chat_stream():
                 for i, chunk in enumerate(chunks[:5])
             ) if chunks else "Không tìm thấy tài liệu phù hợp."
 
-            print(f"Context for LLM:\n{context}")
+            print(f"Context length for LLM: {len(context)}")
 
-                
+            yield from emit_log("Anh/chị chờ chút, đang tổng hợp câu trả lời", force=True)
             answer = "\n\n".join(
                 f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
                 for i, chunk in enumerate(chunks[:chunk_generate])
             )
     
-            if use_llm:
-                answer = llm_answer_procedure(user_message, context, prompt_template=answer_procedure_prompt)
-                if "chưa có thông tin trong hệ thống" in answer.lower():
-                    answer = not_have_content
+            full_answer = ""
+            for token in llm_answer_procedure_stream(user_message, context, prompt_template=answer_procedure_prompt):
+                full_answer += token
+                yield from flush_logs()
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        
+            answer = full_answer
+            # yield f"data: {json.dumps({'done': True, 'replies': answer, 'chunks': chunks}, ensure_ascii=False)}\n\n"
 
             end = time.perf_counter()
             duration = (end - start_flow) * 1000 
@@ -2251,87 +2444,67 @@ def chat_stream():
             log_data["detected_category"]= category
             log_data["detected_subject"]= subject
             log_data["event_type"] = "normal"
-            log_data["alias_score"]= chunks[0]["alias_score"]
-            log_data["document_score"]= chunks[0]["document_score"]
-            log_data["confidence_score"]= chunks[0]["confidence_score"]
+            top_chunk = chunks[0] if chunks else {}
+            log_data["alias_score"]= top_chunk.get("alias_score", 0)
+            log_data["document_score"]= top_chunk.get("document_score", 0)
+            log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
             log_data["session_chat"]= session_id
             log_data["response_time_ms"]= round(duration / 1000,2)
-            create_log(log_data)
-            yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            # yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
 
             return
 
-        if category == "phan_anh_kien_nghi":
-            subject = classify_with_phan_anh(user_message, prompt_template=classify_subject_phan_anh_prompt)
-            subject = normalize_subject_value(subject)
-            if subject is None:
-                category = check_classify_phan_anh_kien_nghi(user_message)
-                category = normalize_subject_value(category)
-
-            yield f"data: {json.dumps({'log': f'=> Trích xuất phản ánh kiến nghị'})}\n\n"
-            yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
-
-        if category == "thong_tin_tong_quan":
-            subject = classify_with_tong_quan(user_message, prompt_template=classify_subject_qa_prompt)
-            subject = normalize_subject_value(subject)
-            # subject = data.get("subject")
-            yield f"data: {json.dumps({'log': f'=> Trích xuất thông tin tổng quan'})}\n\n"
-            yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
-            
         if category == "tuong_tac":
-            subject = classify_with_tuong_tac(user_message, prompt_template=classify_subject_tuong_tac_prompt)
+            subject = classify_tuong_tac_cached(user_message, tenant_code, prompt_template=classify_subject_tuong_tac_prompt)
             subject = normalize_subject_value(subject)
             if subject is None:
-                category = check_classify_tuong_tac(user_message)
-                category = normalize_subject_value(category)
+                subject == "chao_hoi"
             
-            yield f"data: {json.dumps({'log': f'=> Trích xuất tương tác'})}\n\n"
-            yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
+            print(f"Subject for tuong_tac: {subject}")
+            
+            yield from emit_log("Đang xử lý nội dung câu hỏi")
+            # yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
 
             if subject == "chao_hoi":
+                full_answer = ""
+                for token in help_content:
+                    full_answer += token
+                    yield from flush_logs()
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                # yield f"data: {json.dumps({'replies': help_content, 'chunks': []})}\n\n"
                 end = time.perf_counter()
                 duration = (end - start_flow) * 1000 
                 log_data["tenant_code"] = tenant_code
                 log_data["raw_query"] = origin_mess
                 log_data["expanded_query"] = user_message
-                log_data["answer"]= help_content
+                log_data["answer"]= full_answer
                 log_data["event_type"] = "normal"
                 log_data["session_chat"]= session_id
                 log_data["response_time_ms"]= round(duration / 1000,2)
-                create_log(log_data)
-                yield f"data: {json.dumps({'log': f'=> Phân loại tương tác - chào hỏi'})}\n\n"
-                yield f"data: {json.dumps({'replies': help_content, 'chunks': []})}\n\n"
+                enqueue_log(log_data)
+                yield from flush_logs(force=True)
                 return
             if subject == "cam_on_tam_biet":
+                full_answer = ""
+                for token in thank_you_content:
+                    full_answer += token
+                    yield from flush_logs()
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
                 end = time.perf_counter()
                 duration = (end - start_flow) * 1000 
                 log_data["tenant_code"] = tenant_code
                 log_data["raw_query"] = origin_mess
                 log_data["expanded_query"] = user_message
-                log_data["answer"]= "Dạ, cảm ơn anh/chị. Khi cần thêm thông tin, anh/chị cứ liên hệ lại."
+                log_data["answer"]= full_answer
                 log_data["event_type"] = "normal"
                 log_data["session_chat"]= session_id
                 log_data["response_time_ms"]= round(duration / 1000,2)
-                create_log(log_data)
-                yield f"data: {json.dumps({'log': f'=> Phân loại tương tác - cảm ơn/kết thúc'})}\n\n"
-                yield f"data: {json.dumps({'replies': 'Dạ, cảm ơn anh/chị. Khi cần thêm thông tin, anh/chị cứ liên hệ lại.', 'chunks': []})}\n\n"
+                enqueue_log(log_data)
+                yield from flush_logs(force=True)
                 return
-            
-            if subject == "yeu_cau_lam_ro":
-                end = time.perf_counter()
-                duration = (end - start_flow) * 1000 
-                log_data["tenant_code"] = tenant_code
-                log_data["raw_query"] = origin_mess
-                log_data["expanded_query"] = user_message
-                log_data["answer"]= "Dạ được, tôi sẽ giải thích lại từng bước để anh/chị dễ theo dõi."
-                log_data["event_type"] = "normal"
-                log_data["session_chat"]= session_id
-                log_data["response_time_ms"]= round(duration / 1000,2)
-                create_log(log_data)
-                yield f"data: {json.dumps({'log': f'=> Phân loại tương tác - làm rõ'})}\n\n"
-                yield f"data: {json.dumps({'replies': 'Dạ được, tôi sẽ giải thích lại từng bước để anh/chị dễ theo dõi.', 'chunks': []})}\n\n"
-                return
-            
+        
             if subject == "phan_nan_buc_xuc":
                 end = time.perf_counter()
                 duration = (end - start_flow) * 1000 
@@ -2342,9 +2515,10 @@ def chat_stream():
                 log_data["event_type"] = "complaint"
                 log_data["session_chat"]= session_id
                 log_data["response_time_ms"]= round(duration / 1000,2)
-                create_log(log_data)
-                yield f"data: {json.dumps({'log': f'=> Phân loại tương tác - phàn nàn'})}\n\n"
-                yield f"data: {json.dumps({'replies': 'Tôi rất tiếc vì anh/chị chưa hài lòng. Anh/chị hãy nói rõ phần còn vướng, tôi sẽ hỗ trợ lại ngay.', 'chunks': []})}\n\n"
+                enqueue_log(log_data)
+                yield from emit_log("=> Phân loại tương tác - phàn nàn", force=True)
+                yield from flush_logs(force=True)
+                # yield f"data: {json.dumps({'replies': 'Tôi rất tiếc vì anh/chị chưa hài lòng. Anh/chị hãy nói rõ phần còn vướng, tôi sẽ hỗ trợ lại ngay.', 'chunks': []})}\n\n"
                 return
             
             if subject == "xuc_pham_vi_pham":
@@ -2357,9 +2531,10 @@ def chat_stream():
                 log_data["event_type"] = "banned_topic"
                 log_data["session_chat"]= session_id
                 log_data["response_time_ms"]= round(duration / 1000,2)
-                create_log(log_data)
-                yield f"data: {json.dumps({'log': f'=> Phân loại tương tác - xúc phạm/vi phạm'})}\n\n"
-                yield f"data: {json.dumps({'replies': 'Tôi vẫn sẵn sàng hỗ trợ anh/chị về nội dung hành chính. Anh/chị vui lòng sử dụng ngôn từ phù hợp để tôi có thể hỗ trợ tốt hơn.', 'chunks': []})}\n\n"
+                enqueue_log(log_data)
+                yield from emit_log("=> Phân loại tương tác - xúc phạm/vi phạm", force=True)
+                yield from flush_logs(force=True)
+                # yield f"data: {json.dumps({'replies': 'Tôi vẫn sẵn sàng hỗ trợ anh/chị về nội dung hành chính. Anh/chị vui lòng sử dụng ngôn từ phù hợp để tôi có thể hỗ trợ tốt hơn.', 'chunks': []})}\n\n"
                 return
 
             if subject == "chu_de_cam":
@@ -2372,19 +2547,41 @@ def chat_stream():
                 log_data["event_type"] = "banned_topic"
                 log_data["session_chat"]= session_id
                 log_data["response_time_ms"]= round(duration / 1000,2)
-                create_log(log_data)
-                yield f"data: {json.dumps({'log': f'=> Phân loại tương tác - chủ đề cấm'})}\n\n"
-                yield f"data: {json.dumps({'replies': 'Dạ em chỉ hỗ trợ anh/chị về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường thôi ạ. Anh/chị vui lòng đặt câu hỏi liên quan đến những chủ đề này để được hỗ trợ tốt nhất nhé.', 'chunks': []})}\n\n"
+                enqueue_log(log_data)
+                yield from emit_log("=> Phân loại tương tác - chủ đề cấm", force=True)
+                yield from flush_logs(force=True)
+                # yield f"data: {json.dumps({'replies': 'Dạ em chỉ hỗ trợ anh/chị về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường thôi ạ. Anh/chị vui lòng đặt câu hỏi liên quan đến những chủ đề này để được hỗ trợ tốt nhất nhé.', 'chunks': []})}\n\n"
                 return
-        
+            
         scope = extract_scope(user_message)
         tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
 
         end = time.perf_counter()
         duration = (end - start_flow) * 1000 
 
-        yield f"data: {json.dumps({'log': f'[{round(duration / 1000,2)}s]=> Xác định scope: {scope}'})}\n\n"
-        yield f"data: {json.dumps({'log': f'=> Tenant code tham vấn: {tenant_code}'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'[{round(duration / 1000,2)}s]=> Xác định scope: {scope}'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'=> Tenant code tham vấn: {tenant_code}'})}\n\n"
+
+        if category == "phan_anh_kien_nghi":
+            subject = classify_phan_anh_cached(user_message, tenant_code, prompt_template=classify_subject_phan_anh_prompt)
+            subject = normalize_subject_value(subject)
+            tenant_code = None
+            subject = None
+            # if subject is None:
+            #     category = check_classify_phan_anh_kien_nghi(user_message)
+            #     category = normalize_subject_value(category)
+            #     tenant_code = origin_tenant_code
+
+            yield from emit_log("Thuộc phạm vi - phản ánh kiến nghị")
+            # yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
+
+        if category == "thong_tin_tong_quan":
+            subject = classify_tong_quan_cached(user_message, tenant_code, prompt_template=classify_subject_qa_prompt)
+            subject = normalize_subject_value(subject)
+            # subject = data.get("subject")
+            yield from emit_log("Đang tra cứu thông tin tổng quan")
+            # yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
+        
 
         query_embedding = get_embedding_cached(user_message)
 
@@ -2400,7 +2597,7 @@ def chat_stream():
         print(f"Initial chunks: {chunks}")
         
         if subject in ["chuc_vu", "nhan_su"]:
-            yield f"data: {json.dumps({'log': f'Kiểm tra nội dung subject là None'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'Kiểm tra nội dung subject là None'})}\n\n"
             best_score = chunks[0]["confidence_score"] if chunks else 0
             if best_score < 0.4:
                 chunks_all = search_documents_full_hybrid_v6_cached(
@@ -2426,6 +2623,9 @@ def chat_stream():
             for i, chunk in enumerate(primary_chunks)
         ] if primary_chunks else []
 
+
+        yield from emit_log("Đang tim các tài liệu liên quan")
+
         related_chunks = get_related_chunks_cached(tenant_code, id_chunk)
         if related_chunks:
             # Avoid duplicate documents when a related chunk already appears in top results.
@@ -2433,7 +2633,6 @@ def chat_stream():
             unique_related = [c for c in related_chunks if c.get("id") not in existing_ids]
 
             if unique_related:
-                yield f"data: {json.dumps({'log': f'Tìm thấy {len(unique_related)} tài liệu liên quan'})}\n\n"
                 start_idx = len(context_parts)
                 context_parts.extend(
                     f"### Tài liệu liên quan {start_idx + i + 1}\n{chunk['text_content']}"
@@ -2448,12 +2647,15 @@ def chat_stream():
             for i, chunk in enumerate(chunks[:5])
         )
         
+        yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
 
-        if use_llm:
-            print(context)
-            answer = llm_answer(user_message, context, prompt_template=answer_qa_prompt)
-            if "chưa có thông tin trong hệ thống" in answer.lower():
-                answer = not_have_content
+        full_answer = ""
+        for token in llm_answer_stream(user_message, context, prompt_template=answer_qa_prompt):
+            full_answer += token
+            yield from flush_logs()
+            yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+        answer = full_answer
 
         end = time.perf_counter()
         duration = (end - start_flow)
@@ -2469,8 +2671,9 @@ def chat_stream():
         log_data["confidence_score"]= chunks[0]["confidence_score"] if chunks else 0
         log_data["session_chat"]= session_id
         log_data["response_time_ms"]= round(duration, 2)
-        create_log(log_data)
-        yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
+        enqueue_log(log_data)
+        yield from flush_logs(force=True)
+        # yield f"data: {json.dumps({'replies': answer, 'chunks': chunks})}\n\n"
         return
 
     return Response(
@@ -2600,10 +2803,13 @@ def chat():
             last_question = history_data[0]["expanded_query"]
             print(f"Câu hỏi trước: {last_question}")
             user_message = rewrite_query_history(user_message, last_question, prompt_template=history_rewrite_prompt)
+            print(f"Prompt sử dụng cho rewrite câu hỏi: {history_rewrite_prompt}")
             normalized_query = normalize_text(user_message)
             end_check_rewrite_history = time.perf_counter() - start_check_rewrite_history
             print(f'[{round(end_check_rewrite_history, 2)}s] - Câu hỏi sau khi rewrite (có lịch sử hội thoại): {user_message}')
             _log_step("Rewrite câu hỏi theo lịch sử")
+        
+        print(f"Câu hỏi sau khi rewrite: {user_message}")
 
         res = classify_v2_cached(normalized_query, PREPARED, tenant_code)
         category, subject = res["category"], res["subject"]
@@ -2650,18 +2856,6 @@ def chat():
                     "message": user_message,
                     "timestamp": datetime.now().isoformat()
                 }), 200
-
-        if category == "phan_anh_kien_nghi":
-            subject = classify_phan_anh_cached(user_message, tenant_code, prompt_template=classify_subject_phan_anh_prompt)
-            subject = normalize_subject_value(subject)
-            if subject is None:
-                category = check_classify_phan_anh_kien_nghi(user_message)
-                category = normalize_subject_value(category)
-
-        if category == "thong_tin_tong_quan":
-            subject = classify_tong_quan_cached(user_message, tenant_code, prompt_template=classify_subject_qa_prompt)
-            subject = normalize_subject_value(subject)
-
         if category == "thu_tuc_hanh_chinh":
             
             meta = classify_llm_procedure_cached(user_message, prompt_template=classify_subject_procedure_prompt)
@@ -2698,7 +2892,6 @@ def chat():
                     }
                 ).execute()
                 chunks = response.data or []
-                _log_step("Truy vấn một tài liệu thủ tục")
             else:
                 chunks = []
                 valid_procedure_count = 0
@@ -2731,8 +2924,6 @@ def chat():
 
                 if valid_procedure_count == 0:
                     return jsonify({"error": "Không xác định được tên thủ tục"}), 422
-
-                _log_step("Truy vấn nhiều tài liệu thủ tục")
 
             context = "\n\n".join(
                 f"### Tài liệu {i+1}\n{chunk['text_content']}"
@@ -2772,10 +2963,28 @@ def chat():
                 "timestamp": datetime.now().isoformat()
             }), 200
 
-        query_embedding = get_embedding_cached(user_message)
-
         scope = extract_scope(user_message)
         tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
+        
+        if category == "phan_anh_kien_nghi":
+            subject = classify_phan_anh_cached(user_message, tenant_code, prompt_template=classify_subject_phan_anh_prompt)
+            subject = normalize_subject_value(subject)
+            tenant_code = None
+            subject = None
+            # if subject is None:
+            #     category = check_classify_phan_anh_kien_nghi(user_message)
+            #     category = normalize_subject_value(category)
+
+        if category == "thong_tin_tong_quan":
+            subject = classify_tong_quan_cached(user_message, tenant_code, prompt_template=classify_subject_qa_prompt)
+            subject = normalize_subject_value(subject)
+        
+        print(f"Câu hỏi truy vấn: {user_message}")
+
+        query_embedding = get_embedding_cached(user_message)
+        print(f"Subject: {subject}")
+
+        print(f"Scope: {scope}, Tenant code after resolving scope: {tenant_code}")
         _log_step("Tạo embedding và xác định scope")
 
         chunks = search_documents_full_hybrid_v6_cached(
@@ -2795,6 +3004,23 @@ def chat():
                     normalized_query=normalized_query,
                     query_embedding=query_embedding,
                     category="to_chuc_bo_may",
+                    subject=None,
+                    p_limit=5,
+                    tenant=tenant_code
+                )
+                best_score_all = chunks_all[0]["confidence_score"] if chunks_all else 0
+                if best_score_all > best_score:
+                    chunks = chunks_all
+
+            _log_step("Kiểm tra fallback với subject là None cho nhóm chuc_vu/nhan_su")
+        
+        if subject in ["lich_su_hanh_chinh", "gioi_thieu_dia_phuong"]:
+            best_score = chunks[0]["confidence_score"] if chunks else 0
+            if best_score < 0.4:
+                chunks_all = search_documents_full_hybrid_v6_cached(
+                    normalized_query=normalized_query,
+                    query_embedding=query_embedding,
+                    category="thong_tin_tong_quan",
                     subject=None,
                     p_limit=5,
                     tenant=tenant_code
@@ -2829,6 +3055,7 @@ def chat():
         answer_text = llm_answer(user_message, context, prompt_template=answer_qa_prompt)
         if "chưa có thông tin trong hệ thống" in answer_text.lower():
             answer_text = out_of_score_content
+        print(f"Context for LLM:\n{context}")
 
         _log_step("Sinh câu trả lời chung")
 

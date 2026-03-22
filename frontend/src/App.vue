@@ -217,19 +217,49 @@ function highlightChunk(text: string) {
   return text.replace(regex, '<mark class="highlight">$1</mark>')
 }
 
+type ChatMessage = {
+  text: string
+  from: 'user' | 'bot'
+  thoughts?: string[]
+  showThoughts?: boolean
+  isThinking?: boolean
+}
+
 // chat messages shown in widget
-const messages = ref<Array<{text: string; from: 'user' | 'bot'}>>([
+const messages = ref<ChatMessage[]>([
   { text: 'Xin chào! Tôi là trợ lý AI của UBND Phường.', from: 'bot' }
 ])
+
+function toggleThoughts(msg: ChatMessage) {
+  if (!msg.thoughts?.length) return
+  msg.showThoughts = !msg.showThoughts
+}
+
+const autoScrollOnIncoming = ref(true)
+const AUTO_SCROLL_THRESHOLD_PX = 120
+
+function updateAutoScrollState() {
+  if (!chatBody.value) return
+  const el = chatBody.value
+  const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  autoScrollOnIncoming.value = distanceToBottom <= AUTO_SCROLL_THRESHOLD_PX
+}
+
+function handleChatBodyScroll() {
+  updateAutoScrollState()
+}
 
 function scrollToBottom() {
   if (chatBody.value) {
     chatBody.value.scrollTop = chatBody.value.scrollHeight
   }
 }
+
 watch(messages, async () => {
   await nextTick()
-  scrollToBottom()
+  if (autoScrollOnIncoming.value) {
+    scrollToBottom()
+  }
 }, { deep: true })
 
 function getSessionId() {
@@ -243,6 +273,190 @@ function getSessionId() {
   return sessionId
 }
 
+// async function sendMessage() {
+//   if (!userInput.value.trim()) return
+
+//   const tenantCode = requireSelectedTenant('gửi tin nhắn')
+//   if (!tenantCode) return
+
+//   const text = userInput.value.trim()
+//   const sessionId = getSessionId()
+//   // push user message
+//   messages.value.push({ text, from: 'user' })
+//   userInput.value = ''
+  
+//   // clear table data
+//   responses.value = []
+  
+//   // switch to test section to show data-table
+//   activeSection.value = 'test'
+  
+//   // call backend API
+//   loadingChat.value = true
+//   apiError.value = ''
+//   clearLogs();
+//   try {
+//     const res = await fetch(`${API_BASE_URL}/chat-stream`, {
+//       method: 'POST',
+//       headers: { 'Content-Type': 'application/json' },
+//       body: JSON.stringify({
+//         message: text,
+//         session_id: sessionId,
+//         use_llm: isLLMEnabled.value,
+//         chunk_limit: chunkLimit.value,
+//         tenant_code: tenantCode,
+//       })
+//     })
+
+//     const reader = res.body!.getReader()
+//     const decoder = new TextDecoder()
+
+//     while (true) {
+//       const { done, value } = await reader.read()
+//       if (done) break
+
+//       const chunk = decoder.decode(value)
+//       const lines = chunk.split('\n\n')
+
+//       lines.forEach(line => {
+//         if (line.startsWith('data: ')) {
+//           const data = JSON.parse(line.replace('data: ', ''))
+
+//           if (data.log) {
+//             addLog(data.log)
+//           }
+
+//           if (data.chunks) {
+//             let botReply = data.replies
+//             messages.value.push({ text: botReply, from: 'bot' })
+//             // update table with all returned responses
+//             responses.value = data.chunks || []
+//           }
+//         }
+//       })
+//     }
+//   } catch (error: any) {
+//     apiError.value = `Connection error: ${error.message}`
+//     messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
+//   } finally {
+//     loadingChat.value = false
+//     loadLogs(true)
+//   }
+// }
+
+
+
+// async function sendMessage_v1() {
+//   if (!userInput.value.trim()) return
+
+//   const tenantCode = requireSelectedTenant('gửi tin nhắn')
+//   if (!tenantCode) return
+
+//   const text = userInput.value.trim()
+//   const sessionId = getSessionId()
+
+//   messages.value.push({ text, from: 'user' })
+//   userInput.value = ''
+//   responses.value = []
+//   activeSection.value = 'test'
+//   loadingChat.value = true
+//   apiError.value = ''
+//   clearLogs()
+
+//   try {
+//     const res = await fetch(`${API_BASE_URL}/chat-stream`, {
+//       method: 'POST',
+//       headers: { 'Content-Type': 'application/json' },
+//       body: JSON.stringify({
+//         message: text,
+//         session_id: sessionId,
+//         use_llm: isLLMEnabled.value,
+//         chunk_limit: chunkLimit.value,
+//         tenant_code: tenantCode,
+//       })
+//     })
+
+//     if (!res.ok) throw new Error(`HTTP ${res.status}`)
+//     if (!res.body) throw new Error('Response body is empty')
+
+//     const reader = res.body.getReader()
+//     const decoder = new TextDecoder()
+
+//     let buffer = ''
+//     let botMessageIndex: number | null = null
+
+//     while (true) {
+//       const { done, value } = await reader.read()
+
+//       if (done) {
+//         buffer += decoder.decode()
+//         break
+//       }
+
+//       buffer += decoder.decode(value, { stream: true })
+
+//       const events = buffer.split('\n\n')
+//       buffer = events.pop() || ''
+
+//       for (const event of events) {
+//         const line = event.trim()
+//         if (!line.startsWith('data: ')) continue
+
+//         try {
+//           const data = JSON.parse(line.slice(6))
+
+//           if (data.log) {
+//             addLog(data.log)
+//             continue
+//           }
+
+//           if ('token' in data) {
+//             if (botMessageIndex === null) {
+//               messages.value.push({ text: '', from: 'bot' })
+//               botMessageIndex = messages.value.length - 1
+//             }
+
+//             if (botMessageIndex !== null) {
+//               const botMessage = messages.value[botMessageIndex]
+//               if (botMessage) {
+//                 botMessage.text += String(data.token || '')
+//               }
+//             }
+
+//             continue
+//           }
+
+//           if (data.done) {
+//             responses.value = Array.isArray(data.chunks) ? data.chunks : []
+//             botMessageIndex = null
+//             continue
+//           }
+
+//           // kết quả final kiểu cũ / non-stream
+//           if ('replies' in data) {
+//             messages.value.push({ text: data.replies || '', from: 'bot' })
+//             responses.value = Array.isArray(data.chunks) ? data.chunks : []
+//             botMessageIndex = null
+//             continue
+//           }
+//         } catch (err) {
+//           console.error('Failed to parse SSE event:', event)
+//         }
+//       }
+//     }
+//   } catch (error: any) {
+//     apiError.value = `Connection error: ${error.message}`
+//     messages.value.push({
+//       text: 'Xin lỗi, có lỗi khi kết nối đến server.',
+//       from: 'bot'
+//     })
+//   } finally {
+//     loadingChat.value = false
+//     loadLogs(true)
+//   }
+// }
+
+
 async function sendMessage() {
   if (!userInput.value.trim()) return
 
@@ -251,20 +465,14 @@ async function sendMessage() {
 
   const text = userInput.value.trim()
   const sessionId = getSessionId()
-  // push user message
+
   messages.value.push({ text, from: 'user' })
   userInput.value = ''
-  
-  // clear table data
   responses.value = []
-  
-  // switch to test section to show data-table
   activeSection.value = 'test'
-  
-  // call backend API
   loadingChat.value = true
   apiError.value = ''
-  clearLogs();
+
   try {
     const res = await fetch(`${API_BASE_URL}/chat-stream`, {
       method: 'POST',
@@ -278,41 +486,130 @@ async function sendMessage() {
       })
     })
 
-    const reader = res.body!.getReader()
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    if (!res.body) throw new Error('Response body is empty')
+
+    const reader = res.body.getReader()
     const decoder = new TextDecoder()
+
+    let buffer = ''
+    let botMessageIndex: number | null = null
+
+    const processEvent = (event: string) => {
+      const line = event.trim()
+      if (!line.startsWith('data: ')) return
+
+      try {
+        const data = JSON.parse(line.slice(6))
+
+        const ensureBotMessage = () => {
+          if (botMessageIndex === null) {
+            messages.value.push({ text: '', from: 'bot', thoughts: [], showThoughts: true, isThinking: true })
+            botMessageIndex = messages.value.length - 1
+          }
+          const idx = botMessageIndex as number
+          return messages.value[idx]!
+        }
+
+        if (data.log) {
+          const botMessage = ensureBotMessage()
+          const thoughts = botMessage.thoughts ?? []
+          const logLines = String(data.log)
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean)
+
+          if (logLines.length > 0) {
+            thoughts.push(...logLines)
+          }
+          botMessage.thoughts = thoughts
+          if (botMessage.isThinking !== false) {
+            botMessage.showThoughts = true
+          }
+          return
+        }
+
+        if ('token' in data) {
+          const botMessage = ensureBotMessage()
+          if (botMessage) {
+            botMessage.isThinking = false
+            botMessage.showThoughts = false
+            botMessage.text += String(data.token || '')
+          }
+          return
+        }
+
+        if (data.done) {
+          if (botMessageIndex !== null) {
+            const botMessage = messages.value[botMessageIndex]
+            if (botMessage) {
+              botMessage.isThinking = false
+              botMessage.showThoughts = false
+            }
+          }
+          responses.value = Array.isArray(data.chunks) ? data.chunks : []
+          botMessageIndex = null
+          return
+        }
+
+        if ('replies' in data) {
+          // nếu chưa có message stream thì push mới
+          if (botMessageIndex === null) {
+            messages.value.push({ text: String(data.replies || ''), from: 'bot', thoughts: [], showThoughts: false, isThinking: false })
+          } else {
+            // nếu đang stream thì cập nhật message hiện tại
+            const botMessage = messages.value[botMessageIndex]
+            if (botMessage) {
+              botMessage.isThinking = false
+              botMessage.showThoughts = false
+              if (!botMessage.text) {
+                botMessage.text = String(data.replies || '')
+              }
+            }
+          }
+
+          responses.value = Array.isArray(data.chunks) ? data.chunks : []
+          botMessageIndex = null
+        }
+      } catch (err) {
+        console.error('Failed to parse SSE event:', event)
+      }
+    }
 
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
 
-      const chunk = decoder.decode(value)
-      const lines = chunk.split('\n\n')
+      if (done) {
+        buffer += decoder.decode()
+        break
+      }
 
-      lines.forEach(line => {
-        if (line.startsWith('data: ')) {
-          const data = JSON.parse(line.replace('data: ', ''))
+      buffer += decoder.decode(value, { stream: true })
 
-          if (data.log) {
-            addLog(data.log)
-          }
+      const events = buffer.split('\n\n')
+      buffer = events.pop() || ''
 
-          if (data.chunks) {
-            let botReply = data.replies
-            messages.value.push({ text: botReply, from: 'bot' })
-            // update table with all returned responses
-            responses.value = data.chunks || []
-          }
-        }
-      })
+      for (const event of events) {
+        processEvent(event)
+      }
+    }
+
+    // parse nốt phần còn sót lại
+    if (buffer.trim()) {
+      processEvent(buffer)
     }
   } catch (error: any) {
     apiError.value = `Connection error: ${error.message}`
-    messages.value.push({ text: 'Xin lỗi, có lỗi khi kết nối đến server.', from: 'bot' })
+    messages.value.push({
+      text: 'Xin lỗi, có lỗi khi kết nối đến server.',
+      from: 'bot'
+    })
   } finally {
     loadingChat.value = false
     loadLogs(true)
   }
 }
+
 
 // async function sendMessageNotStream() {
 //   if (!userInput.value.trim()) return
@@ -1452,7 +1749,7 @@ async function loadHistory(){
 
     const historyMessages = data.logs.flatMap((item:any) => [
       { text: item.raw_query, from: 'user' },
-      { text: item.answer, from: 'bot' }
+      { text: item.answer, from: 'bot', thoughts: [], showThoughts: false }
     ])
 
     messages.value = [
@@ -1477,64 +1774,6 @@ onMounted(() => {
   loadHistory()
   document.addEventListener('click', handleClickOutside)
 });
-
-
-const logs = ref<{ type: string; message: string }[]>([])
-const logBody = ref<HTMLElement | null>(null)
-
-function addLog(message: string, type: 'info' | 'warn' | 'error' = 'info') {
-  logs.value.push({
-    type,
-    message: `[${new Date().toLocaleTimeString()}] ${message}`
-  })
-}
-
-function clearLogs() {
-  logs.value = []
-}
-
-// Auto scroll xuống cuối khi có log mới
-watch(logs, async () => {
-  await nextTick()
-  if (logBody.value) {
-    logBody.value.scrollTop = logBody.value.scrollHeight
-  }
-}, { deep: true })
-
-
-
-const logPanel = ref<HTMLElement | null>(null)
-
-let isDragging = false
-let offsetX = 0
-let offsetY = 0
-
-function startDrag(e: MouseEvent) {
-  if (!logPanel.value) return
-
-  isDragging = true
-  const rect = logPanel.value.getBoundingClientRect()
-
-  offsetX = e.clientX - rect.left
-  offsetY = e.clientY - rect.top
-
-  document.addEventListener('mousemove', onDrag)
-  document.addEventListener('mouseup', stopDrag)
-}
-
-function onDrag(e: MouseEvent) {
-  if (!isDragging || !logPanel.value) return
-
-  logPanel.value.style.left = `${e.clientX - offsetX}px`
-  logPanel.value.style.top = `${e.clientY - offsetY}px`
-  logPanel.value.style.bottom = 'auto'
-}
-
-function stopDrag() {
-  isDragging = false
-  document.removeEventListener('mousemove', onDrag)
-  document.removeEventListener('mouseup', stopDrag)
-}
 </script>
 
 <template>
@@ -1581,8 +1820,8 @@ function stopDrag() {
           :class="{ active: activeSection === 'test' }"
           @click="activeSection = 'test'"
         >Xử lý Chat</div>
-        <div 
-          class="menu-item" 
+        <div
+          class="menu-item"
           :class="{ active: activeSection === 'log' }"
           @click="viewLogs()"
         >Logs</div>
@@ -1625,23 +1864,6 @@ function stopDrag() {
               </tr>
             </tbody>
           </table>
-        </div>
-        <!-- Debug Log Panel -->
-        <div class="log-panel" ref="logPanel">
-          <div class="log-header" @mousedown="startDrag">
-            <span>Debug Log</span>
-            <button @click="clearLogs">Clear</button>
-          </div>
-
-          <div class="log-body" ref="logBody">
-            <div 
-              v-for="(log, index) in logs" 
-              :key="index"
-              :class="['log-item', log.type]"
-            >
-              {{ log.message }}
-            </div>
-          </div>
         </div>
       </section>
     </div>
@@ -2009,23 +2231,6 @@ function stopDrag() {
           </tbody>
         </table>
       </div>
-      <!-- Debug Log Panel -->
-        <div class="log-panel" ref="logPanel">
-          <div class="log-header" @mousedown="startDrag">
-            <span>Debug Log</span>
-            <button @click="clearLogs">Clear</button>
-          </div>
-
-          <div class="log-body" ref="logBody">
-            <div 
-              v-for="(log, index) in logs" 
-              :key="index"
-              :class="['log-item', log.type]"
-            >
-              {{ log.message }}
-            </div>
-          </div>
-        </div>
     </section>
 
     <section class="data-chunks-table" v-if="activeSection === 'chunks'" :class="{ 'with-chat': isOpen }">
@@ -2287,13 +2492,8 @@ function stopDrag() {
         </table>
       </div>
     </section>
-    <!-- Floating Button -->
-    <!-- <section class="chat-toggle" @click="isOpen = !isOpen">
-      💬
-    </section> -->
-
-    <!-- Chat Window -->
-    <div v-if="isOpen = true" class="chat-widget">
+    <!-- Chat Section -->
+    <section v-if="activeSection === 'test'" class="chat-section">
       <!-- Header -->
       <div class="chat-header">
         <div class="chat-title">
@@ -2302,7 +2502,7 @@ function stopDrag() {
         </div>
         <!-- ⚙ Setting button -->
     <!-- Dropdown -->
-    <div v-if="showSettings = true" class="settings-dropdown">
+    <div v-if="showSettings" class="settings-dropdown">
       
       <!-- Toggle LLM -->
       <div class="setting-item">
@@ -2327,19 +2527,38 @@ function stopDrag() {
         <button class="close-btn" @click="clearChat()" title="Xóa lịch sử hội thoại">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw w-4 h-4"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg>
         </button>
-        <button class="close-btn" @click="isOpen = false">✕</button>
       </div>
 
       <!-- Messages -->
       <div 
         class="chat-body"
         ref="chatBody"
+        @scroll="handleChatBodyScroll"
       >
         <div 
           v-for="(msg, idx) in messages" 
           :key="idx" 
           :class="msg.from + '-message'"
         >
+          <button
+            v-if="msg.from === 'bot' && msg.thoughts && msg.thoughts.length"
+            class="thought-toggle"
+            @click="toggleThoughts(msg)"
+          >
+            {{ msg.showThoughts ? 'Ẩn suy nghĩ' : (msg.isThinking ? `Đang suy nghĩ (${msg.thoughts.length})` : `Xem suy nghĩ (${msg.thoughts.length})`) }}
+          </button>
+          <div
+            v-if="msg.from === 'bot' && msg.showThoughts && msg.thoughts && msg.thoughts.length"
+            class="thought-box"
+          >
+            <div
+              v-for="(thought, tIdx) in msg.thoughts"
+              :key="tIdx"
+              class="thought-item"
+            >
+              {{ thought }}
+            </div>
+          </div>
           <div
             class="message-markdown"
             v-html="renderMarkdown(msg.text)"
@@ -2357,7 +2576,7 @@ function stopDrag() {
         />
         <button @click="sendMessage" :disabled="loadingChat || !selectedTenantCode">{{ loadingChat ? '⏳' : '➤' }}</button>
       </div>
-    </div>
+    </section>
     <!-- Create Alias Modal -->
     <div v-if="isCreateModalOpen" class="modal-overlay">
       <div class="modal-box">
@@ -2427,6 +2646,7 @@ function stopDrag() {
               <option value="thong_tin_tong_quan">Thông tin tổng quan</option>
               <option value="to_chuc_bo_may">Tổ chức bộ máy</option>
               <option value="thu_tuc_hanh_chinh">Thủ tục hành chính</option>
+              <option value="phan_anh_kien_nghi">Phản ánh kiện nghị</option>
             </select>
           </div>
           <div class="filter-group">
@@ -2466,6 +2686,14 @@ function stopDrag() {
             <select v-if="newChunk.category == 'to_chuc_bo_may'" v-model="newChunk.subject" class="filter-select">
               <option value="nhan_su">Nhân sự</option>
               <option value="chuc_vu">Chức vụ</option>
+            </select>
+            <select v-if="newChunk.category == 'phan_anh_kien_nghi'" v-model="newChunk.subject" class="filter-select">
+              <option value="ha_tang">Hạ tầng</option>
+              <option value="moi_truong">Môi trường</option>
+              <option value="an_ninh_trat_tu">An ninh trật tự</option>
+              <option value="do_thi">Đô thị</option>
+              <option value="giao_thong">Giao thông</option>
+              <option value="khieu_nai_to_cao">Khiếu nại tố cáo</option>
             </select>
           </div>
           <div class="filter-group">
@@ -2829,37 +3057,18 @@ body{
   background: #dc2626;
 }
 
-.chat-toggle {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  width: 55px;
-  height: 55px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #9333ea);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  cursor: pointer;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-  z-index: 1000;
-}
-
-.chat-widget {
-  position: fixed;
-  bottom: 8px;
-  left: 16px;
-  width: 420px;
-  height: 520px;
+.chat-section {
+  margin: 4px 2rem 2rem;
+  min-height: 62vh;
   background: #f3f4f6;
   border-radius: 18px;
-  box-shadow: 0 15px 35px rgba(0,0,0,0.25);
+  box-shadow: 0 15px 35px rgba(0,0,0,0.12);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  z-index: 1000;
+  width: 100%;
+  margin-bottom: 0;
+  max-height: 96vh;
 }
 
 /* Header */
@@ -3619,6 +3828,41 @@ textarea.edit-input {
   padding-left: 12px;
   border-left: 3px solid #d1d5db;
   color: #4b5563;
+}
+
+.thought-toggle {
+  margin-bottom: 8px;
+  border: none;
+  background: #f3f4f6;
+  color: #374151;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.82em;
+  cursor: pointer;
+}
+
+.thought-toggle:hover {
+  background: #e5e7eb;
+  margin-top: 10px;
+}
+
+.thought-box {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.thought-item {
+  font-size: 0.82em;
+  color: #3730a3;
+  line-height: 1.45;
+  margin-bottom: 4px;
+}
+
+.thought-item:last-child {
+  margin-bottom: 0;
 }
 
 .message-markdown table {

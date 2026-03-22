@@ -714,7 +714,7 @@ TRẢ VỀ DUY NHẤT JSON:
 }}
 
 VÍ DỤ
-"chào bạn" -> {{"subject": "chao_hoi"}}
+"chào bạn, hey" -> {{"subject": "chao_hoi"}}
 "cảm ơn nhé" -> {{"subject": "cam_on_tam_biet"}}
 "trả lời khó hiểu vậy" -> {{"subject": "phan_nan_buc_xuc"}}
 "mày ngu quá" -> {{"subject": "xuc_pham_vi_pham"}}
@@ -818,18 +818,18 @@ def export_metadata_filter_chunk(category, query):
 
 # from model import llm_answer
 
-if __name__ == "__main__":
-    TEST_THONG_TIN_TONG_QUAN = [
-        # "khu phố nào có di tích vườn cau đỏ",
-        # "vườn cau đỏ là khu di tích hả",
-        # "vườn cau đỏ ở đâu",
-        "bộ phận công an xã thuộc ấp bắc lân à?",
-    ]
-    for query in TEST_THONG_TIN_TONG_QUAN:
-        print("\n====================\n")
-        print(f"Query: {query}")
-        data = classify_with_tong_quan(query)
-        subject = data.get("subject")
+# if __name__ == "__main__":
+#     TEST_THONG_TIN_TONG_QUAN = [
+#         # "khu phố nào có di tích vườn cau đỏ",
+#         # "vườn cau đỏ là khu di tích hả",
+#         # "vườn cau đỏ ở đâu",
+#         "bộ phận công an xã thuộc ấp bắc lân à?",
+#     ]
+#     for query in TEST_THONG_TIN_TONG_QUAN:
+#         print("\n====================\n")
+#         print(f"Query: {query}")
+#         data = classify_with_tong_quan(query)
+#         subject = data.get("subject")
         # units = data.get("units") or []
 
         # for i, unit in enumerate(units):

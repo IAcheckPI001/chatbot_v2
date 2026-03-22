@@ -164,90 +164,131 @@ def search_documents_full_hybrid_v6_cached(normalized_query, query_embedding, ca
 
 from model import llm_rewrite, _render_prompt_template
 
-def rewrite_history(query, last_question, prompt_template=None):
+# def rewrite_history(query, last_question, prompt_template=None):
+#     default_prompt = f"""Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã.
+
+# NHIỆM VỤ
+# Viết lại câu hỏi hiện tại thành đúng 1 câu hỏi độc lập, ngắn gọn, giữ nguyên ý nghĩa gốc.
+
+# ĐẦU VÀO
+# - Câu trước đó đã được viết lại đầy đủ: {last_question}
+# - Câu hỏi hiện tại: {query}
+
+# NGUYÊN TẮC CHUNG
+# - Chỉ dùng thông tin có trong 2 câu trên.
+# - Không bịa thêm thông tin mới.
+# - Nếu không đủ chắc chắn để viết lại đúng, giữ nguyên câu hiện tại.
+# - Nếu câu hiện tại đã là câu độc lập, giữ nguyên.
+# - Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
+
+# ƯU TIÊN QUYẾT ĐỊNH
+# 1. Nếu câu hiện tại là lời chào, cảm ơn, cảm thán, xác nhận ngắn, xúc phạm, hoặc quá mơ hồ không xác định chắc chắn được ý hỏi -> giữ nguyên.
+# 2. Nếu câu hiện tại đã đủ chủ đề, đối tượng và ý định hỏi -> giữ nguyên.
+# 3. Nếu câu hiện tại là câu tiếp nối thiếu chủ đề nhưng vẫn giữ ý hỏi cũ -> bổ sung chủ đề từ câu trước.
+# 4. Nếu câu hiện tại đổi đối tượng mới nhưng giữ cách hỏi từ câu trước -> giữ mẫu hỏi cũ và thay đối tượng mới.
+# 5. Nếu câu hiện tại chỉ còn trường thông tin cần hỏi (ví dụ: số điện thoại, địa chỉ, email, hotline, lệ phí, hồ sơ, giấy tờ, bao lâu, ở đâu, online được không) -> khôi phục câu hỏi đầy đủ từ câu trước nếu chắc chắn.
+# 6. Nếu không chắc chắn -> giữ nguyên.
+
+# QUY TẮC BẮT BUỘC
+# - Không biến câu hỏi thông tin nhân sự thành câu hỏi thủ tục.
+# - Không biến câu hỏi thủ tục thành câu hỏi nhân sự.
+# - Không đổi tên người, chức danh, địa danh, số hiệu khu phố, số hiệu ấp.
+# - Không được làm mất các phần *phân biệt quan trọng* của thủ tục như: "lại", "cấp lại", "trích lục", "bản sao", "có yếu tố nước ngoài", "khu vực biên giới", "thường trú", "tạm trú".
+# - Không tự thêm các từ như "là gì", "ở đâu", "bao lâu", "như thế nào" nếu câu trước không cho thấy rõ ý định đó.
+# - Từ "còn" không mặc định là tiếp tục cùng chủ đề. 
+# VÍ DỤ
+
+# 1. Thiếu chủ đề
+# Câu trước: đăng ký khai sinh
+# Câu hiện tại: nộp online được không
+# Kết quả: đăng ký khai sinh nộp online được không
+
+# Câu trước: đăng ký lại khai sinh
+# Câu hiện tại: cần giấy tờ gì
+# Kết quả: đăng ký lại khai sinh cần giấy tờ gì
+
+# 2. Đổi đối tượng nhưng giữ mẫu hỏi
+# Câu trước: đăng ký kết hôn làm sao
+# Câu hiện tại: còn mất cccd
+# Kết quả: còn mất cccd làm sao
+
+# Câu trước: ai là trưởng khu phố 1 của xã
+# Câu hiện tại: còn trưởng kp 2
+# Kết quả: ai là trưởng khu phố 2 của xã
+
+# 3. Chỉ còn trường thông tin cần hỏi
+# Câu trước: địa chỉ ubnd xã ở đâu
+# Câu hiện tại: số điện thoại
+# Kết quả: số điện thoại của ubnd xã là gì
+
+# Câu trước: đăng ký khai sinh có yếu tố nước ngoài
+# Câu hiện tại: lệ phí bao nhiêu
+# Kết quả: đăng ký khai sinh có yếu tố nước ngoài lệ phí là bao nhiêu
+
+# 4. Đại từ hồi chỉ
+# Câu trước: phó chủ tịch phụ trách văn hóa là ai
+# Câu hiện tại: số của người đó
+# Kết quả: số điện thoại của phó chủ tịch phụ trách văn hóa là gì
+
+# 5. Chuyển chủ đề
+# Câu trước: xã hiện tại có những đặc điểm gì
+# Câu hiện tại: cần giấy tờ gì
+# Kết quả: cần giấy tờ gì
+
+# Câu trước: chủ tịch xã là ai
+# Câu hiện tại: thủ tục khai sinh cần gì
+# Kết quả: thủ tục khai sinh cần gì
+
+# 6. Xã giao / cảm thán / quá mơ hồ
+# Câu trước: đăng ký khai sinh cần gì
+# Câu hiện tại: xin chào
+# Kết quả: xin chào
+
+# Câu trước: chủ tịch xã là ai
+# Câu hiện tại: ok vậy thôi
+# Kết quả: ok vậy thôi
+# """
+#     prompt = _render_prompt_template(
+#         prompt_template,
+#         default_prompt,
+#         query=query,
+#     )
+#     try:
+#         response = llm_rewrite.invoke(prompt)
+#         return response.content.strip()
+#     except:
+#         return query
+
+def rewrite_query(query: str, last_question, prompt_template: str = None) -> str:
     default_prompt = f"""Bạn là hệ thống viết lại câu hỏi theo ngữ cảnh cho chatbot hành chính cấp xã.
 
 NHIỆM VỤ
-Viết lại câu hỏi hiện tại thành đúng 1 câu hỏi độc lập, ngắn gọn, giữ nguyên ý nghĩa gốc.
+Viết lại câu hỏi hiện tại thành đúng 1 câu hỏi độc lập, ngắn gọn, tự nhiên, giữ nguyên ý nghĩa.
 
 ĐẦU VÀO
-- Câu trước đó đã được viết lại đầy đủ: {last_question}
+- Câu trước đã được viết lại đầy đủ: {last_question}
 - Câu hỏi hiện tại: {query}
 
-NGUYÊN TẮC CHUNG
-- Chỉ dùng thông tin có trong 2 câu trên.
-- Không bịa thêm thông tin mới.
-- Nếu không đủ chắc chắn để viết lại đúng, giữ nguyên câu hiện tại.
-- Nếu câu hiện tại đã là câu độc lập, giữ nguyên.
-- Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
+QUY TẮC
+1. Nếu câu hiện tại là lời chào, cảm ơn, tạm biệt, xác nhận ngắn, cảm thán, phản hồi xã giao, hoặc không phải câu hỏi thật (ví dụ: xin chào, chào, hi, hello, cảm ơn, ok, oke, ok vậy, dạ, vâng, ừ, thôi, đúng rồi) thì giữ nguyên câu hiện tại sau khi làm sạch, không được nối với câu trước.
+2. Trước hết, làm sạch câu hiện tại:
+- Bỏ từ đệm, từ rào trước không cần thiết như: "anh nhầm", "ý tôi là", "tôi cần biết", "cho tôi hỏi".
+- Chuẩn hóa viết tắt quen thuộc nếu chắc chắn: "cccd" -> "căn cước công dân", "ubnd" -> "ủy ban nhân dân", "tp" -> "thành phố", "kp" -> "khu phố".
+- Sửa lỗi lặp từ, lỗi chính tả rõ ràng nếu chắc chắn.
 
-ƯU TIÊN QUYẾT ĐỊNH
-1. Nếu câu hiện tại là lời chào, cảm ơn, cảm thán, xác nhận ngắn, xúc phạm, hoặc quá mơ hồ không xác định chắc chắn được ý hỏi -> giữ nguyên.
-2. Nếu câu hiện tại đã đủ chủ đề, đối tượng và ý định hỏi -> giữ nguyên.
-3. Nếu câu hiện tại là câu tiếp nối thiếu chủ đề nhưng vẫn giữ ý hỏi cũ -> bổ sung chủ đề từ câu trước.
-4. Nếu câu hiện tại đổi đối tượng mới nhưng giữ cách hỏi từ câu trước -> giữ mẫu hỏi cũ và thay đối tượng mới.
-5. Nếu câu hiện tại chỉ còn trường thông tin cần hỏi (ví dụ: số điện thoại, địa chỉ, email, hotline, lệ phí, hồ sơ, giấy tờ, bao lâu, ở đâu, online được không) -> khôi phục câu hỏi đầy đủ từ câu trước nếu chắc chắn.
-6. Nếu không chắc chắn -> giữ nguyên.
+3. Sau khi làm sạch:
+- Nếu câu hiện tại đã đủ ý, là câu độc lập -> giữ nguyên.
+- Nếu câu hiện tại thiếu chủ đề nhưng rõ là hỏi tiếp câu trước -> bổ sung chủ đề từ câu trước.
+- Nếu câu hiện tại nêu đối tượng mới rõ ràng nhưng giữ cách hỏi cũ -> giữ mẫu hỏi cũ và thay đối tượng mới.
+- Nếu câu hiện tại chỉ còn ý hỏi như: số điện thoại, địa chỉ, hồ sơ, giấy tờ, lệ phí, bao lâu, ở đâu, online được không -> khôi phục đầy đủ từ câu trước nếu chắc chắn.
+- Nếu không chắc chắn -> giữ nguyên câu hiện tại sau khi làm sạch.
 
-QUY TẮC BẮT BUỘC
-- Không biến câu hỏi thông tin nhân sự thành câu hỏi thủ tục.
-- Không biến câu hỏi thủ tục thành câu hỏi nhân sự.
+RÀNG BUỘC
+- Không bịa thêm thông tin.
+- Không đổi câu hỏi nhân sự thành thủ tục hoặc ngược lại.
 - Không đổi tên người, chức danh, địa danh, số hiệu khu phố, số hiệu ấp.
-- Không được làm mất các phần *phân biệt quan trọng* của thủ tục như: "lại", "cấp lại", "trích lục", "bản sao", "có yếu tố nước ngoài", "khu vực biên giới", "thường trú", "tạm trú".
-- Không tự thêm các từ như "là gì", "ở đâu", "bao lâu", "như thế nào" nếu câu trước không cho thấy rõ ý định đó.
-- Từ "còn" không mặc định là tiếp tục cùng chủ đề. 
-VÍ DỤ
-
-1. Thiếu chủ đề
-Câu trước: đăng ký khai sinh
-Câu hiện tại: nộp online được không
-Kết quả: đăng ký khai sinh nộp online được không
-
-Câu trước: đăng ký lại khai sinh
-Câu hiện tại: cần giấy tờ gì
-Kết quả: đăng ký lại khai sinh cần giấy tờ gì
-
-2. Đổi đối tượng nhưng giữ mẫu hỏi
-Câu trước: đăng ký kết hôn làm sao
-Câu hiện tại: còn mất cccd
-Kết quả: còn mất cccd làm sao
-
-Câu trước: ai là trưởng khu phố 1 của xã
-Câu hiện tại: còn trưởng kp 2
-Kết quả: ai là trưởng khu phố 2 của xã
-
-3. Chỉ còn trường thông tin cần hỏi
-Câu trước: địa chỉ ubnd xã ở đâu
-Câu hiện tại: số điện thoại
-Kết quả: số điện thoại của ubnd xã là gì
-
-Câu trước: đăng ký khai sinh có yếu tố nước ngoài
-Câu hiện tại: lệ phí bao nhiêu
-Kết quả: đăng ký khai sinh có yếu tố nước ngoài lệ phí là bao nhiêu
-
-4. Đại từ hồi chỉ
-Câu trước: phó chủ tịch phụ trách văn hóa là ai
-Câu hiện tại: số của người đó
-Kết quả: số điện thoại của phó chủ tịch phụ trách văn hóa là gì
-
-5. Chuyển chủ đề
-Câu trước: xã hiện tại có những đặc điểm gì
-Câu hiện tại: cần giấy tờ gì
-Kết quả: cần giấy tờ gì
-
-Câu trước: chủ tịch xã là ai
-Câu hiện tại: thủ tục khai sinh cần gì
-Kết quả: thủ tục khai sinh cần gì
-
-6. Xã giao / cảm thán / quá mơ hồ
-Câu trước: đăng ký khai sinh cần gì
-Câu hiện tại: xin chào
-Kết quả: xin chào
-
-Câu trước: chủ tịch xã là ai
-Câu hiện tại: ok vậy thôi
-Kết quả: ok vậy thôi
-"""
+- Không làm mất các từ phân biệt thủ tục như: "lại", "cấp lại", "trích lục", "bản sao", "có yếu tố nước ngoài", "khu vực biên giới", "thường trú", "tạm trú".
+- Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích."""
     prompt = _render_prompt_template(
         prompt_template,
         default_prompt,
@@ -259,113 +300,145 @@ Kết quả: ok vậy thôi
     except:
         return query
 
-def rewrite_query(query: str, prompt_template: str = None) -> str:
-    default_prompt = f"""Bạn là hệ thống viết lại câu hỏi hoàn chỉnh cho chatbot hành chính cấp xã/phường.
+# ============================================================================
+# TEST CASES FOR REWRITE PROMPT ACCURACY
+# ============================================================================
 
-NHIỆM VỤ
-Viết lại câu hỏi hiện tại thành một câu hỏi độc lập, ngắn gọn, tự nhiên, giữ nguyên ý nghĩa ban đầu.
+test_cases = [
+    # Sửa sai / đính chính
+    {
+        "last_question": "bí thư phường là ai",
+        "query": "anh nhầm, anh hỏi bí thư tp là ai",
+    },
+    {
+        "last_question": "bí thư phường là ai",
+        "query": "tôi cần biết chủ tịch tp là ai",
+    },
+    {
+        "last_question": "phó chủ tịch xã là ai",
+        "query": "không phải phó chủ tịch, tôi hỏi chủ tịch",
+    },
+    # Không được biến sang thủ tục
+    {
+        "last_question": "chủ tịch xã là ai",
+        "query": "còn khai sinh",
+    },
+    {
+        "last_question": "bí thư phường là ai",
+        "query": "thủ tục kết hôn cần gì",
+    },
+    # Hỏi tiếp cùng chủ đề
+    {
+        "last_question": "địa chỉ ubnd xã ở đâu",
+        "query": "số điện thoại",
+    },
+    {
+        "last_question": "xã có bao nhiêu khu phố",
+        "query": "tên các khu phố là gì",
+    },
+    {
+        "last_question": "ubnd phường làm việc mấy giờ",
+        "query": "thứ 7 có làm không",
+    },
+    {
+        "last_question": "xã thuộc quận nào",
+        "query": "còn tỉnh",
+    },
+    # Đổi đối tượng nhưng giữ mẫu hỏi
+    {
+        "last_question": "địa chỉ ubnd xã ở đâu",
+        "query": "còn trạm y tế",
+    },
+    {
+        "last_question": "số điện thoại ubnd xã là gì",
+        "query": "còn công an xã",
+    },
+    {
+        "last_question": "xã có bao nhiêu khu phố",
+        "query": "còn tổ dân phố",
+    },
 
-ĐẦU VÀO
-- Câu hỏi hiện tại: {query}
+    # Mơ hồ / xã giao
+    {
+        "last_question": "địa chỉ ubnd xã ở đâu",
+        "query": "xin chào",
+    },
+    {
+        "last_question": "xã có bao nhiêu khu phố",
+        "query": "ok",
+    },
+    {
+        "last_question": "số điện thoại ubnd xã là gì",
+        "query": "cảm ơn",
+    },
+    # =========================
+    # 4. CASE GIAO THOA / THỰC TẾ CHAT
+    # =========================
 
-MỤC TIÊU
-- Mở rộng các từ viết tắt phổ biến trong ngữ cảnh hành chính cấp xã/phường.
-- Sửa lỗi chính tả rõ ràng, lỗi gõ, lỗi nói miệng nếu có thể suy ra chắc chắn.
-- Bỏ các từ đệm không cần thiết như "à", "á", "ậy", "nha", "nhỉ" nếu không làm đổi nghĩa.
-- Nếu câu đã rõ và đầy đủ thì giữ nguyên.
-- Nếu không đủ chắc chắn để sửa đúng, giữ nguyên câu hiện tại.
-- Không được thêm thông tin mới ngoài câu hiện tại.
-- Không được đổi tên người, số thứ tự, địa danh, đơn vị hành chính.
+    # Người dùng đổi từ thông tin phường sang thủ tục
+    {
+        "last_question": "địa chỉ ubnd xã ở đâu",
+        "query": "làm khai sinh cần gì",
+    },
+    {
+        "last_question": "xã có bao nhiêu khu phố",
+        "query": "đăng ký tạm trú ở đâu",
+    },
+    # Người dùng đổi từ thủ tục sang lãnh đạo
+    {
+        "last_question": "đăng ký kết hôn cần gì",
+        "query": "chủ tịch xã là ai",
+    },
+    {
+        "last_question": "làm cccd ở đâu",
+        "query": "số điện thoại công an xã là gì",
+    },
+    # Người dùng hỏi ngắn, cần khôi phục hợp lý
+    {
+        "last_question": "số điện thoại ủy ban nhân dân xã là gì",
+        "query": "còn địa chỉ",
+    },
+    {
+        "last_question": "trưởng khu phố 1 là ai",
+        "query": "số điện thoại",
+    },
+    {
+        "last_question": "đăng ký khai sinh cần gì",
+        "query": "ở đâu",
+    },
+    # Câu có từ đệm / câu rào trước
+    {
+        "last_question": "bí thư phường là ai",
+        "query": "tôi cần biết số điện thoại",
+    },
+    {
+        "last_question": "địa chỉ ubnd xã ở đâu",
+        "query": "ý tôi là số điện thoại",
+    },
+    # Lỗi lặp từ / gõ sai nhẹ
+    {
+        "last_question": "",
+        "query": "chu tich chu tich xa la ai",
+    },
+    {
+        "last_question": "",
+        "query": "dia chi dia chi ubnd xa o dau",
+    },
+    {
+        "last_question": "đăng ký khai sinh cần gì",
+        "query": "giấy tờ giấy tờ gì",
+    },
+]
+    
+if __name__ == "__main__":
+    
+    for item in test_cases:
+        last_question = item["last_question"]
+        query = item["query"]
 
-QUY TẮC QUAN TRỌNG
-- Chỉ viết lại cho rõ hơn, không được suy diễn thêm.
-- Giữ nguyên đối tượng được hỏi.
-- Giữ nguyên số, tên riêng, chức danh nếu đã đầy đủ.
-- Với từ viết tắt hành chính phổ biến, ưu tiên mở rộng:
-  - sdt -> số điện thoại
-  - ct -> chủ tịch
-  - pct -> phó chủ tịch
-  - bt -> bí thư
-  - kp -> khu phố
-  - ubnd -> ủy ban nhân dân
-  - tp -> thành phố
-- Với lỗi rõ ràng trong ngữ cảnh:
-  - trường khu phố -> trưởng khu phố
-  - trường kp -> trưởng khu phố
+        rewritten = rewrite_query(query, last_question)
+        print(f"Last question: {last_question}")
+        print(f"Query: {query}")
+        print(f"Rewritten: {rewritten}")
 
-VÍ DỤ
-Câu hiện tại: "sdt của chị Thu là gì"
-→ "số điện thoại của chị Thu là gì"
-
-Câu hiện tại: "vậy còn chủ tịch tp là ai"
-→ "vậy còn chủ tịch thành phố là ai"
-
-Câu hiện tại: "trưởng kp 2 của xã là ai"
-→ "trưởng khu phố 2 của xã là ai"
-
-Câu hiện tại: "ct phường là ai?"
-→ "chủ tịch phường là ai?"
-
-Câu hiện tại: "ai là trường kp 8 á?"
-→ "ai là trưởng khu phố 8?"
-
-Câu hiện tại: "bt phường là ai"
-→ "bí thư phường là ai"
-
-Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
-"""
-    prompt = _render_prompt_template(
-        prompt_template,
-        default_prompt,
-        query=query,
-    )
-    try:
-        response = llm_rewrite.invoke(prompt)
-        return response.content.strip()
-    except:
-        return query
-
-# if __name__ == "__main__":
-#     rewrite_query_test_cases = [
-#         # Mo rong viet tat hanh chinh pho bien.
-#         {"query": "sdt của chị Thu là gì", "expected": "số điện thoại của chị Thu là gì"},
-#         {"query": "ct phường là ai?", "expected": "chủ tịch phường là ai?"},
-#         {"query": "pct phường phụ trách vhxh là ai", "expected": "phó chủ tịch phường phụ trách vhxh là ai"},
-#         {"query": "bt phường là ai", "expected": "bí thư phường là ai"},
-#         {"query": "ubnd xã ở đâu", "expected": "ủy ban nhân dân xã ở đâu"},
-#         {"query": "chủ tịch tp là ai", "expected": "chủ tịch thành phố là ai"},
-#         {"query": "trưởng kp 2 của xã là ai", "expected": "trưởng khu phố 2 của xã là ai"},
-
-#         # Sua loi ro rang trong ngu canh.
-#         {"query": "ai là trường kp 8 á?", "expected": "ai là trưởng khu phố 8?"},
-#         {"query": "ai là trường khu phố 3", "expected": "ai là trưởng khu phố 3"},
-
-#         # Bo tu dem khong can thiet.
-#         {"query": "ct xã là ai nha", "expected": "chủ tịch xã là ai"},
-#         {"query": "sdt ubnd xã là gì nhỉ", "expected": "số điện thoại ủy ban nhân dân xã là gì"},
-
-#         # Cau da ro rang thi giu nguyen.
-#         {"query": "đăng ký khai sinh cần giấy tờ gì", "expected": "đăng ký khai sinh cần giấy tờ gì"},
-#         {"query": "địa chỉ ủy ban nhân dân xã ở đâu", "expected": "địa chỉ ủy ban nhân dân xã ở đâu"},
-
-#         # Truong hop can giu nguyen vi khong chac chan.
-#         {"query": "cty abc ở đâu", "expected": "cty abc ở đâu"},
-#         {"query": "mã hs 1234 tra ở đâu", "expected": "mã hs 1234 tra ở đâu"},
-
-#         # Khong doi ten rieng, so thu tu, dia danh.
-#         {"query": "sdt của anh Nam khu phố 7 là gì", "expected": "số điện thoại của anh Nam khu phố 7 là gì"},
-#         {"query": "ct phường 12 quận 10 là ai", "expected": "chủ tịch phường 12 quận 10 là ai"},
-
-#         # Hoi ket hop nhieu quy tac.
-#         {"query": "vậy còn sdt ct tp là gì á", "expected": "vậy còn số điện thoại chủ tịch thành phố là gì"},
-#         {"query": "sdt trường kp 5 nha", "expected": "số điện thoại trưởng khu phố 5"},
-#         {"query": "ubnd tp có làm t7 ko", "expected": "ủy ban nhân dân thành phố có làm t7 ko"},
-#     ]
-
-
-#     for idx, case in enumerate(rewrite_query_test_cases, 1):
-#         actual = rewrite_query(case["query"])
-
-#         print(f"- Câu hỏi:    {case['query']}")
-#         print(f"- Câu hỏi viết lại:   {actual}")
 

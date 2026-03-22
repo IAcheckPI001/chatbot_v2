@@ -15,9 +15,14 @@ client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
 )
 
+# llm_extract = ChatOpenAI(
+#     model_name="gpt-4.1-nano",
+#     temperature=0.0,
+#     openai_api_key=os.getenv("OPENAI_API_KEY")
+# )
 
 llm = ChatOpenAI(
-    model_name="gpt-4o-mini",
+    model_name="gpt-4.1-mini",
     temperature=0.0,
     max_tokens=50,
     model_kwargs={
@@ -27,7 +32,7 @@ llm = ChatOpenAI(
 )
 
 llm_rewrite = ChatOpenAI(
-    model_name="gpt-4o-mini",
+    model_name="gpt-4.1-mini",
     temperature=0.0,
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
@@ -35,6 +40,7 @@ llm_rewrite = ChatOpenAI(
 llm_generate = ChatOpenAI(
     model_name="gpt-4o-mini",
     temperature=0.3,
+    streaming=True,
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
 
@@ -425,8 +431,6 @@ Câu hỏi:
     except Exception as e:
         print("LLM classify error:", e)
         return None
-
-classify_category("phường có hỗ trợ nộp hồ sơ trực tuyến không")
 
 def check_classify_phan_anh_kien_nghi(query: str):
     prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường.
@@ -1322,6 +1326,67 @@ Quy tắc xét duyệt hồ sơ (BẮT BUỘC TUÂN THỦ STRICTLY):
     except:
         return question
 
+
+def llm_answer_procedure_stream(question: str, context: str, prompt_template: str = None):
+    default_prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
+
+Hãy trả lời chỉ dựa trên thông tin có trong tài liệu bên dưới.
+Không thêm quy định, thủ tục, thời hạn, lệ phí hoặc cơ quan xử lý nếu tài liệu không nêu.
+
+Nếu tài liệu đủ thông tin, hãy trả lời trực tiếp bằng văn phong tự nhiên, rõ ràng.
+Nếu tài liệu chỉ khớp một phần nhưng vẫn có thể hướng dẫn người dùng, hãy trả lời theo hướng phù hợp nhất và nêu điều kiện ngắn gọn khi cần.
+Chỉ khi tài liệu hoàn toàn không liên quan mới trả lời đúng nguyên văn:
+"Hiện tại hệ thống đang bổ sung thêm thông tin, để hỗ trợ anh/chị tốt hơn ạ. Anh/chị còn câu hỏi nào thắc mắc không ạ?"
+
+=== TÀI LIỆU ===
+{context}
+
+=== CÂU HỎI ===
+{question}
+
+Yêu cầu nội dung:
+- Trả lời tự nhiên, thân thiện, không quá máy móc.
+- Luôn mở đầu câu trả lời là "Thưa anh/chị," và kết thúc bằng "Thân mến!"
+- Ưu tiên trả lời thẳng vào ý người dùng hỏi.
+- Không cần luôn mở đầu bằng “Theo tài liệu”.
+- Chỉ nêu điều kiện khi thật sự cần để tránh hiểu sai.
+- Nếu tài liệu có nêu hồ sơ, nơi nộp, thời gian giải quyết thì có thể tóm tắt ngắn gọn.
+- Không bịa thêm thông tin ngoài tài liệu.
+
+Yêu cầu trình bày:
+- Trình bày bằng markdown đơn giản, dễ đọc trên giao diện chat.
+- Với câu hỏi ngắn và câu trả lời chỉ có 1 ý chính, trả lời thành 1 đoạn ngắn tự nhiên, không cần chia mục.
+- Nếu câu trả lời có từ 2 ý trở lên, hãy tách thành các đoạn ngắn; mỗi đoạn nên thể hiện 1 ý chính.
+- Ưu tiên câu ngắn, rõ ý; tránh viết 1 đoạn quá dài.
+- Khi có danh sách hồ sơ, giấy tờ, bước thực hiện hoặc lưu ý, hãy dùng bullet list.
+- Có thể in đậm các thông tin quan trọng hoặc các nhãn ngắn như: **Hồ sơ**, **Nơi nộp**, **Hình thức nộp**, **Thời gian giải quyết**, **Lưu ý**.
+- Không lạm dụng tiêu đề lớn hoặc chia quá nhiều mục nhỏ.
+- Chỉ dùng bảng markdown khi người dùng đang hỏi so sánh nhiều thủ tục hoặc nhiều phương án; nếu không, không dùng bảng.
+- Không dùng ký hiệu, biểu tượng hoặc trang trí không cần thiết.
+- Ưu tiên ngắn gọn, rõ ý, nhìn thoáng.
+
+Quy tắc xét duyệt hồ sơ (BẮT BUỘC TUÂN THỦ STRICTLY):
+- Các mục liệt kê trong phần "Hồ sơ gồm" là điều kiện bắt buộc.
+- Ký tự "/" hoặc chữ "hoặc" có nghĩa là chỉ cần 1 trong các loại giấy tờ đó.
+- NẾU người dùng hỏi về việc thiếu/mất một loại giấy tờ, bạn PHẢI trả lời rõ là KHÔNG THỂ thực hiện thủ tục, TRỪ KHI họ có giấy tờ thay thế hợp lệ ghi trong tài liệu.
+- Ví dụ: Tài liệu ghi "CCCD/Hộ chiếu", nếu người dùng mất CCCD, phải hướng dẫn họ dùng Hộ chiếu thay thế. Nếu không có cả hai, không thể đăng ký.
+"""
+    prompt = _render_prompt_template(
+        prompt_template,
+        default_prompt,
+        question=question,
+        query=question,
+        context=context,
+    )
+
+    try:
+        for chunk in llm_generate.stream(prompt):
+            if hasattr(chunk, "content") and chunk.content:
+                yield chunk.content
+    except Exception:
+        yield question
+    
+
 def llm_answer(question: str, context: str, prompt_template: str = None) -> str:
     default_prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
 
@@ -1368,3 +1433,51 @@ Yêu cầu trình bày:
         return response.content.strip()
     except:
         return question
+
+
+def llm_answer_stream(question: str, context: str, prompt_template: str = None) -> str:
+    default_prompt = f"""Bạn là trợ lý chatbot hành chính cấp xã/phường, trả lời thân thiện, tự nhiên, dễ hiểu như đang hướng dẫn người dân.
+
+Hãy trả lời chỉ dựa trên thông tin có trong tài liệu bên dưới.
+
+Nếu tài liệu đủ thông tin, hãy trả lời trực tiếp bằng văn phong tự nhiên, rõ ràng.
+Nếu tài liệu chỉ khớp một phần nhưng vẫn có thể hướng dẫn người dùng, hãy trả lời theo hướng phù hợp nhất và nêu điều kiện ngắn gọn khi cần.
+Chỉ khi tài liệu hoàn toàn không liên quan mới trả lời đúng nguyên văn:
+"Hiện tại hệ thống đang bổ sung thêm thông tin, để hỗ trợ anh/chị tốt hơn ạ. Anh/chị còn câu hỏi nào thắc mắc không ạ?"
+
+=== TÀI LIỆU ===
+{context}
+
+=== CÂU HỎI ===
+{question}
+
+Yêu cầu nội dung:
+- Trả lời tự nhiên, thân thiện, không quá máy móc.
+- Luôn mở đầu bằng "Thưa anh/chị," và kết thúc bằng "Thân mến!"
+- Ưu tiên trả lời thẳng vào đúng điều người dùng hỏi.
+- Không cần luôn mở đầu bằng “Theo tài liệu”.
+- Chỉ nêu điều kiện khi thật sự cần để tránh hiểu sai.
+- Không bịa thêm thông tin ngoài tài liệu.
+
+Yêu cầu trình bày:
+- Dùng markdown đơn giản, dễ đọc trên giao diện chat.
+- Với câu hỏi ngắn và câu trả lời ngắn, viết thành 1–2 đoạn ngắn tự nhiên.
+- Sau câu "Thưa anh/chị," nên xuống dòng.
+- Khi có từ 2 ý rõ ràng trở lên, có thể tách thành nhiều dòng ngắn.
+- Không lạm dụng tiêu đề lớn hoặc chia quá nhiều mục nhỏ.
+- Không dùng ký hiệu, biểu tượng hoặc trang trí không cần thiết.
+- Ưu tiên ngắn gọn, rõ ý, nhìn thoáng.
+"""
+    prompt = _render_prompt_template(
+        prompt_template,
+        default_prompt,
+        question=question,
+        query=question,
+        context=context,
+    )
+    try:
+        for chunk in llm_generate.stream(prompt):
+            if hasattr(chunk, "content") and chunk.content:
+                yield chunk.content
+    except Exception:
+        yield question
