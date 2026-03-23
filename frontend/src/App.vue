@@ -3,8 +3,8 @@ import { ref, computed, onMounted, onBeforeUnmount , watch, nextTick } from 'vue
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
-// const API_BASE_URL = '/api'
-const API_BASE_URL = 'http://localhost:5000/api'
+const API_BASE_URL = '/api'
+// const API_BASE_URL = 'http://localhost:5000/api'
 // const API_URL = import.meta.env.VITE_API_URL
 // const API_BASE_URL = `${API_URL}/api`
 const chunkLimit = ref(1)
@@ -1769,40 +1769,40 @@ const isChanged = computed(() => {
   )
 })
 
-const SC_OPTIONS = [
-  'yeu_to_nuoc_ngoai',
-  'khu_vuc_bien_gioi',
-  'da_co_ho_so_giay_to_ca_nhan',
-  'uy_quyen',
-  'chon_quoc_tich',
-  'qua_han_dang_ky',
-  'mat_so_ho_tich_va_ban_chinh',
-]
+// const SC_OPTIONS = [
+//   'yeu_to_nuoc_ngoai',
+//   'khu_vuc_bien_gioi',
+//   'da_co_ho_so_giay_to_ca_nhan',
+//   'uy_quyen',
+//   'chon_quoc_tich',
+//   'qua_han_dang_ky',
+//   'mat_so_ho_tich_va_ban_chinh',
+// ]
 
-const PA_OPTIONS = [
-  'dang_ky_moi', 'dang_ky_lai', 'cap_lai', 'cap_ban_sao', 'cap_phep',
-  'thay_doi', 'cai_chinh', 'bo_sung', 'xac_nhan', 'ghi_vao_so',
-  'giai_quyet', 'thong_bao', 'ho_tro', 'tro_cap', 'cham_dut',
-  'tam_ngung', 'tiep_tuc', 'chap_thuan', 'cong_bo_lai', 'cong_bo',
-  'cong_nhan', 'chuyen_truong', 'tuyen_sinh', 'xet_tuyen', 'xet_cap',
-  'phe_duyet', 'can_thiep', 'thu_hoi', 'giao', 'huy_bo',
-  'cam_tiep_xuc', 'thanh_toan',
-]
+// const PA_OPTIONS = [
+//   'dang_ky_moi', 'dang_ky_lai', 'cap_lai', 'cap_ban_sao', 'cap_phep',
+//   'thay_doi', 'cai_chinh', 'bo_sung', 'xac_nhan', 'ghi_vao_so',
+//   'giai_quyet', 'thong_bao', 'ho_tro', 'tro_cap', 'cham_dut',
+//   'tam_ngung', 'tiep_tuc', 'chap_thuan', 'cong_bo_lai', 'cong_bo',
+//   'cong_nhan', 'chuyen_truong', 'tuyen_sinh', 'xet_tuyen', 'xet_cap',
+//   'phe_duyet', 'can_thiep', 'thu_hoi', 'giao', 'huy_bo',
+//   'cam_tiep_xuc', 'thanh_toan',
+// ]
 
-function removeSpecialContext(ctx: string) {
-  if (!editingData.value) return
-  editingData.value.special_contexts = editingData.value.special_contexts.filter((c: string) => c !== ctx)
-}
+// function removeSpecialContext(ctx: string) {
+//   if (!editingData.value) return
+//   editingData.value.special_contexts = editingData.value.special_contexts.filter((c: string) => c !== ctx)
+// }
 
-function addSpecialContext(event: Event) {
-  const select = event.target as HTMLSelectElement
-  const val = select.value
-  if (!val || !editingData.value) return
-  if (!editingData.value.special_contexts.includes(val)) {
-    editingData.value.special_contexts.push(val)
-  }
-  select.value = ''
-}
+// function addSpecialContext(event: Event) {
+//   const select = event.target as HTMLSelectElement
+//   const val = select.value
+//   if (!val || !editingData.value) return
+//   if (!editingData.value.special_contexts.includes(val)) {
+//     editingData.value.special_contexts.push(val)
+//   }
+//   select.value = ''
+// }
 
 async function saveEditChunk() {
   if (!editingData.value) return
