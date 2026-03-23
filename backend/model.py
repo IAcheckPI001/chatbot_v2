@@ -32,7 +32,7 @@ llm = ChatOpenAI(
 )
 
 llm_rewrite = ChatOpenAI(
-    model_name="gpt-4.1-mini",
+    model_name="gpt-4o-mini",
     temperature=0.0,
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )

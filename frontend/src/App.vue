@@ -108,6 +108,61 @@ watch(notedLogs, () => {
   )
 })
 
+const logs = ref<{ type: string; message: string }[]>([])
+const logBody = ref<HTMLElement | null>(null)
+
+function addLog(message: string, type: 'info' | 'warn' | 'error' = 'info') {
+  logs.value.push({
+    type,
+    message: `[${new Date().toLocaleTimeString()}] ${message}`
+  })
+}
+
+function clearLogs() {
+  logs.value = []
+}
+
+// Auto scroll xuống cuối khi có log mới
+watch(logs, async () => {
+  await nextTick()
+  if (logBody.value) {
+    logBody.value.scrollTop = logBody.value.scrollHeight
+  }
+}, { deep: true })
+
+
+const logPanel = ref<HTMLElement | null>(null)
+
+let isDragging = false
+let offsetX = 0
+let offsetY = 0
+
+function startDrag(e: MouseEvent) {
+  if (!logPanel.value) return
+
+  isDragging = true
+  const rect = logPanel.value.getBoundingClientRect()
+
+  offsetX = e.clientX - rect.left
+  offsetY = e.clientY - rect.top
+
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+}
+
+function onDrag(e: MouseEvent) {
+  if (!isDragging || !logPanel.value) return
+
+  logPanel.value.style.left = `${e.clientX - offsetX}px`
+  logPanel.value.style.top = `${e.clientY - offsetY}px`
+  logPanel.value.style.bottom = 'auto'
+}
+
+function stopDrag() {
+  isDragging = false
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+}
 
 const sortBy = ref<'text_content' | ''>('')      // hiện tại chỉ sort theo text_content
 const sortDir = ref<'asc' | 'desc'>('asc')
@@ -223,6 +278,8 @@ type ChatMessage = {
   thoughts?: string[]
   showThoughts?: boolean
   isThinking?: boolean
+  currentThinking?: string
+  chunks?: any[]
 }
 
 // chat messages shown in widget
@@ -230,13 +287,18 @@ const messages = ref<ChatMessage[]>([
   { text: 'Xin chào! Tôi là trợ lý AI của UBND Phường.', from: 'bot' }
 ])
 
-function toggleThoughts(msg: ChatMessage) {
-  if (!msg.thoughts?.length) return
-  msg.showThoughts = !msg.showThoughts
-}
-
 const autoScrollOnIncoming = ref(true)
 const AUTO_SCROLL_THRESHOLD_PX = 120
+const showChunksModal = ref(false)
+const selectedMessageChunks = ref<any[]>([])
+
+function getThinkingThought(msg: ChatMessage) {
+  if (!msg.isThinking) return ''
+  if (msg.currentThinking) return msg.currentThinking
+
+  const thoughts = msg.thoughts ?? []
+  return thoughts.length ? thoughts[thoughts.length - 1] : ''
+}
 
 function updateAutoScrollState() {
   if (!chatBody.value) return
@@ -271,6 +333,11 @@ function getSessionId() {
   }
 
   return sessionId
+}
+
+function viewChunksFromMessage(chunks: any[]) {
+  selectedMessageChunks.value = chunks
+  showChunksModal.value = true
 }
 
 // async function sendMessage() {
@@ -467,13 +534,16 @@ async function sendMessage() {
   const sessionId = getSessionId()
 
   messages.value.push({ text, from: 'user' })
+  messages.value.push({ text: '', from: 'bot', thoughts: [], showThoughts: false, isThinking: true })
   userInput.value = ''
   responses.value = []
   activeSection.value = 'test'
   loadingChat.value = true
   apiError.value = ''
+  let botMessageIndex: number | null = messages.value.length - 1
 
   try {
+    clearLogs()
     const res = await fetch(`${API_BASE_URL}/chat-stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -493,7 +563,6 @@ async function sendMessage() {
     const decoder = new TextDecoder()
 
     let buffer = ''
-    let botMessageIndex: number | null = null
 
     const processEvent = (event: string) => {
       const line = event.trim()
@@ -512,15 +581,22 @@ async function sendMessage() {
         }
 
         if (data.log) {
+          addLog(data.log)
+          return
+        }
+
+        if (data.thought) {
           const botMessage = ensureBotMessage()
           const thoughts = botMessage.thoughts ?? []
-          const logLines = String(data.log)
+          const thoughtLines = String(data.thought)
             .split(/\r?\n/)
             .map(line => line.trim())
             .filter(Boolean)
 
-          if (logLines.length > 0) {
-            thoughts.push(...logLines)
+          if (thoughtLines.length > 0) {
+            thoughts.push(...thoughtLines)
+            // Giữ câu suy nghĩ hiện tại, chỉ thay khi có log mới.
+            botMessage.currentThinking = thoughtLines[thoughtLines.length - 1]
           }
           botMessage.thoughts = thoughts
           if (botMessage.isThinking !== false) {
@@ -545,6 +621,7 @@ async function sendMessage() {
             if (botMessage) {
               botMessage.isThinking = false
               botMessage.showThoughts = false
+              botMessage.chunks = Array.isArray(data.chunks) ? data.chunks : []
             }
           }
           responses.value = Array.isArray(data.chunks) ? data.chunks : []
@@ -599,6 +676,12 @@ async function sendMessage() {
       processEvent(buffer)
     }
   } catch (error: any) {
+    if (botMessageIndex !== null) {
+      const botMessage = messages.value[botMessageIndex]
+      if (botMessage && botMessage.from === 'bot' && !botMessage.text && botMessage.isThinking) {
+        messages.value.splice(botMessageIndex, 1)
+      }
+    }
     apiError.value = `Connection error: ${error.message}`
     messages.value.push({
       text: 'Xin lỗi, có lỗi khi kết nối đến server.',
@@ -2540,14 +2623,30 @@ onMounted(() => {
           :key="idx" 
           :class="msg.from + '-message'"
         >
-          <button
-            v-if="msg.from === 'bot' && msg.thoughts && msg.thoughts.length"
+          <div
+            v-if="msg.from === 'bot' && msg.isThinking && !msg.text"
+            class="thinking-state"
+          >
+            <div class="thinking-bubble" aria-label="Đang suy nghĩ">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <div
+              v-if="getThinkingThought(msg)"
+              class="thinking-thought-line"
+            >
+              {{ getThinkingThought(msg) }}
+            </div>
+          </div>
+          <!-- <button
+            v-if="msg.from === 'bot' && msg.thoughts && msg.thoughts.length && !(msg.isThinking && !msg.text)"
             class="thought-toggle"
             @click="toggleThoughts(msg)"
           >
             {{ msg.showThoughts ? 'Ẩn suy nghĩ' : (msg.isThinking ? `Đang suy nghĩ (${msg.thoughts.length})` : `Xem suy nghĩ (${msg.thoughts.length})`) }}
-          </button>
-          <div
+          </button> -->
+          <!-- <div
             v-if="msg.from === 'bot' && msg.showThoughts && msg.thoughts && msg.thoughts.length"
             class="thought-box"
           >
@@ -2558,11 +2657,19 @@ onMounted(() => {
             >
               {{ thought }}
             </div>
-          </div>
+          </div> -->
           <div
+            v-if="msg.text"
             class="message-markdown"
             v-html="renderMarkdown(msg.text)"
           ></div>
+          <button
+            v-if="msg.from === 'bot' && msg.chunks && msg.chunks.length > 0"
+            class="btn-view-chunks"
+            @click="viewChunksFromMessage(msg.chunks)"
+          >
+            📄 Xem {{ msg.chunks.length }} tài liệu tham khảo
+          </button>
         </div>
       </div>
 
@@ -2576,6 +2683,23 @@ onMounted(() => {
         />
         <button @click="sendMessage" :disabled="loadingChat || !selectedTenantCode">{{ loadingChat ? '⏳' : '➤' }}</button>
       </div>
+      <!-- Debug Log Panel -->
+        <div class="log-panel" ref="logPanel">
+          <div class="log-header" @mousedown="startDrag">
+            <span>Debug Log</span>
+            <button @click="clearLogs">Clear</button>
+          </div>
+
+          <div class="log-body" ref="logBody">
+            <div 
+              v-for="(log, index) in logs" 
+              :key="index"
+              :class="['log-item', log.type]"
+            >
+              {{ log.message }}
+            </div>
+          </div>
+        </div>
     </section>
     <!-- Create Alias Modal -->
     <div v-if="isCreateModalOpen" class="modal-overlay">
@@ -2831,6 +2955,46 @@ onMounted(() => {
           </button>
         </div>
 
+      </div>
+    </div>
+    
+    <!-- Chunks Modal -->
+    <div v-if="showChunksModal" class="modal-overlay">
+      <div class="modal-box" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h3 style="margin: 0;">Tài liệu tham khảo ({{ selectedMessageChunks.length }})</h3>
+          <button 
+            class="btn-cancel" 
+            @click="showChunksModal = false"
+            style="margin: 0;"
+          >
+            ✕ Đóng
+          </button>
+        </div>
+        
+        <div v-if="selectedMessageChunks.length === 0" style="text-align: center; color: #999; padding: 40px;">
+          Không có tài liệu
+        </div>
+        
+        <div v-for="(chunk, idx) in selectedMessageChunks" :key="idx" style="margin-bottom: 24px; padding: 16px; background: #f5f5f5; border-radius: 8px; border: 1px solid #ddd;">
+          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+            <h4 style="margin: 0; color: #333;">📄 Tài liệu {{ idx + 1 }}</h4>
+            <span v-if="chunk.confidence_score" style="background: #4ade80; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9em;">
+              Score: {{ (chunk.confidence_score * 100).toFixed(0) }}%
+            </span>
+          </div>
+          
+          <div v-if="chunk.category" style="margin-bottom: 8px;">
+            <span style="color: #666; font-size: 0.9em;">
+              <strong>Category:</strong> {{ chunk.category }}
+              <span v-if="chunk.subject" style="margin-left: 16px;"><strong>Subject:</strong> {{ chunk.subject }}</span>
+            </span>
+          </div>
+          
+          <div style="background: white; padding: 12px; border-radius: 4px; border: 1px solid #eee; color: #333; line-height: 1.6;">
+            {{ chunk.text_content }}
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -3768,6 +3932,29 @@ textarea.edit-input {
   word-break: break-word;
 }
 
+.btn-view-chunks {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.95em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.btn-view-chunks:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+.btn-view-chunks:active {
+  transform: translateY(0);
+}
+
 .message-markdown p {
   margin: 0 0 10px;
 }
@@ -3863,6 +4050,69 @@ textarea.edit-input {
 
 .thought-item:last-child {
   margin-bottom: 0;
+}
+
+.thinking-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.thinking-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+}
+
+.thinking-bubble span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #6b7280;
+  animation: dotWave 1s infinite ease-in-out;
+}
+
+.thinking-bubble span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.thinking-bubble span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+.thinking-label {
+  color: #6b7280;
+  font-size: 0.9em;
+  padding-left: 4px;
+}
+
+.thinking-thought-line {
+  max-width: 100%;
+  color: #4b5563;
+  font-size: 0.84em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 4px;
+  min-height: 1.25em;
+  transition: opacity 180ms ease;
+}
+
+@keyframes dotWave {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
 }
 
 .message-markdown table {
