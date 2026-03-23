@@ -3,8 +3,8 @@ import { ref, computed, onMounted, onBeforeUnmount , watch, nextTick } from 'vue
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
-const API_BASE_URL = '/api'
-// const API_BASE_URL = 'http://localhost:5000/api'
+// const API_BASE_URL = '/api'
+const API_BASE_URL = 'http://localhost:5000/api'
 // const API_URL = import.meta.env.VITE_API_URL
 // const API_BASE_URL = `${API_URL}/api`
 const chunkLimit = ref(1)
@@ -33,6 +33,7 @@ const originalData = ref<any>(null)
 const notedLogs = ref<Set<number>>(new Set())
 const TENANT_STORAGE_KEY = 'selected_tenant_code'
 const NULL_TENANT_CODE = 'quoc_gia'
+const ALL_TENANTS_FILTER = '__all_tenants__'
 
 function normalizeTenantCode(value: unknown) {
   return (value ?? '').toString().trim() || NULL_TENANT_CODE
@@ -292,6 +293,7 @@ const autoScrollOnIncoming = ref(true)
 const AUTO_SCROLL_THRESHOLD_PX = 120
 const showChunksModal = ref(false)
 const selectedMessageChunks = ref<any[]>([])
+const exactChunkIdFilter = ref('')
 
 function getThinkingThought(msg: ChatMessage) {
   if (!msg.isThinking) return ''
@@ -348,6 +350,26 @@ function getSessionId() {
 function viewChunksFromMessage(chunks: any[]) {
   selectedMessageChunks.value = chunks
   showChunksModal.value = true
+}
+
+function filterChunkFromReference(chunk: any) {
+  const chunkId = (chunk?.id ?? '').toString().trim()
+  if (!chunkId) return
+
+  exactChunkIdFilter.value = chunkId
+  categoryFilter.value = ''
+  subjectFilter.value = ''
+  searchKeyword.value = ''
+
+  showChunksModal.value = false
+  activeSection.value = 'chunks'
+
+  nextTick(() => {
+    const row = document.getElementById(`chunk-row-${chunkId}`)
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  })
 }
 
 // async function sendMessage() {
@@ -816,6 +838,7 @@ const promptEditingData = ref<any>(null)
 const activeSection = ref("tenants");
 const searchKeyword = ref('')
 const selectedTenantCode = ref(localStorage.getItem(TENANT_STORAGE_KEY))
+const chunksTenantFilter = ref<string>(ALL_TENANTS_FILTER)
 // const relationSourceChunkId = ref('')
 // const relationSearchKeyword = ref('')
 // const relationSelectedTargetIds = ref<string[]>([])
@@ -856,6 +879,18 @@ watch(selectedTenantCode, (tenantCode) => {
   newChunk.value.tenant_code = tenantCode
 }, { immediate: true })
 
+const chunkTenantOptions = computed(() => {
+  const codeSet = new Set<string>()
+
+  chunksData.value.forEach(item => {
+    const code = normalizeTenantCode(item.tenant_code)
+    if (code === 'temp') return
+    codeSet.add(code)
+  })
+
+  return Array.from(codeSet).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }))
+})
+
 const tenantChunkIds = computed(() => {
   if (!selectedTenantCode.value) {
     return new Set<string>()
@@ -869,12 +904,15 @@ const tenantChunkIds = computed(() => {
 })
 
 const filteredChunks = computed(() => {
-  if (!selectedTenantCode.value) {
-    return []
-  }
+  const selectedChunkTenant = chunksTenantFilter.value
 
   return chunksData.value.filter(item => {
-    const tenantMatch = !selectedTenantCode.value || normalizeTenantCode(item.tenant_code) === selectedTenantCode.value
+    const chunkIdMatch =
+      !exactChunkIdFilter.value ||
+      (item?.id ?? '').toString() === exactChunkIdFilter.value
+    const tenantMatch =
+      selectedChunkTenant === ALL_TENANTS_FILTER ||
+      normalizeTenantCode(item.tenant_code) === selectedChunkTenant
     const categoryMatch = !categoryFilter.value || item.category === categoryFilter.value
     const subjectMatch = !subjectFilter.value || item.subject === subjectFilter.value
     
@@ -884,7 +922,7 @@ const filteredChunks = computed(() => {
         ?.toLowerCase()
         .includes(searchKeyword.value.toLowerCase())
 
-    return tenantMatch && categoryMatch && subjectMatch && keywordMatch
+    return chunkIdMatch && tenantMatch && categoryMatch && subjectMatch && keywordMatch
   })
 })
 
@@ -932,6 +970,38 @@ const filteredTenants = computed(() => {
     .filter(item => !keyword || item.tenant_code.toLowerCase().includes(keyword))
     .sort((a, b) => a.tenant_code.localeCompare(b.tenant_code, 'vi', { sensitivity: 'base' }))
 })
+
+const tenantScopeMap = computed(() => {
+  const map = new Map<string, string>()
+
+  tenantsData.value.forEach(item => {
+    const tenantCode = normalizeTenantCode(item?.tenant_code)
+    const scope = (item?.scope || '').toString().trim()
+    if (tenantCode && scope) {
+      map.set(tenantCode, scope)
+    }
+  })
+
+  return map
+})
+
+function formatScopeLabel(scope: unknown) {
+  const value = (scope ?? '').toString().trim()
+  if (!value) return 'Quốc gia'
+  if (value === 'xa_phuong') return 'Xã/Phường'
+  if (value === 'tinh_thanh') return 'Tỉnh/Thành'
+  if (value === 'quoc_gia') return 'Quốc gia'
+  return value
+}
+
+function getChunkTenantScope(item: any) {
+  const tenantCode = normalizeTenantCode(item?.tenant_code)
+  const tenantScope = tenantScopeMap.value.get(tenantCode)
+  if (tenantScope) return formatScopeLabel(tenantScope)
+
+  const chunkScope = (item?.scope || '').toString().trim()
+  return formatScopeLabel(chunkScope)
+}
 
 const filteredPrompts = computed(() => {
   const keyword = searchKeyword.value.trim().toLowerCase()
@@ -1141,6 +1211,7 @@ const viewPrompts = () => {
 
 const applyTenant = async (tenantCode: string) => {
   selectedTenantCode.value = tenantCode
+  chunksTenantFilter.value = tenantCode
   responses.value = []
   searchKeyword.value = ''
   typeLogFilter.value = ''
@@ -1157,6 +1228,7 @@ const applyTenant = async (tenantCode: string) => {
 
 const clearTenantSelection = async () => {
   selectedTenantCode.value = null
+  chunksTenantFilter.value = ALL_TENANTS_FILTER
   responses.value = []
   searchKeyword.value = ''
   typeLogFilter.value = ''
@@ -1173,6 +1245,12 @@ const viewLogs = () => {
   activeSection.value = 'log';
   loadLogs(false);
 };
+
+const viewAllTenantsChunks = () => {
+  chunksTenantFilter.value = ALL_TENANTS_FILTER
+  activeSection.value = 'chunks'
+  loadChunks(false)
+}
 
 // const viewChunkRelations = () => {
 //   activeSection.value = 'relations'
@@ -2068,6 +2146,22 @@ onMounted(() => {
                 {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
               </td>
             </tr>
+            <tr>
+              <td class="col-index">0</td>
+              <td class="col-content" style="width: 44%;">
+                <div class="content-text">Tất cả tenant</div>
+              </td>
+              <td class="col-index">{{ chunksData.length }}</td>
+              <td class="col-index action-cell">
+                <button
+                  class="btn-create"
+                  style="margin-right: 0;"
+                  @click="viewAllTenantsChunks"
+                >
+                  Xem tất cả
+                </button>
+              </td>
+            </tr>
             <tr v-for="(item, idx) in filteredTenants" :key="item.tenant_code">
               <td class="col-index">{{ idx + 1 }}</td>
               <td class="col-content" style="width: 44%;">
@@ -2343,6 +2437,15 @@ onMounted(() => {
       <!-- Filter Section -->
       <div class="filter-section">
         <div class="filter-group">
+          <label>Tenant:</label>
+          <select v-model="chunksTenantFilter" class="filter-select">
+            <option :value="ALL_TENANTS_FILTER">Tất cả tenant</option>
+            <option v-for="tenantCode in chunkTenantOptions" :key="tenantCode" :value="tenantCode">
+              {{ tenantCode }}
+            </option>
+          </select>
+        </div>
+        <div class="filter-group">
           <label>Category:</label>
           <select v-model="categoryFilter" class="filter-select">
             <option value="">Tất cả</option>
@@ -2402,7 +2505,10 @@ onMounted(() => {
             <option value="khieu_nai_to_cao">Khiếu nại tố cáo</option>
           </select>
         </div>
-        <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''">Xóa bộ lọc</button>
+        <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''; exactChunkIdFilter = ''">Xóa bộ lọc</button>
+      </div>
+      <div v-if="exactChunkIdFilter" class="filter-result" style="background: #eef6ff; color: #1d4ed8;">
+        Đang lọc theo chunk ID: {{ exactChunkIdFilter }}
       </div>
       <div class="filter-result">Tìm thấy {{ filteredChunks.length }} / {{ chunksData.length }} kết quả</div>
       <div class="table-scroll">
@@ -2418,8 +2524,9 @@ onMounted(() => {
               </th>
               <th class="col-index">Category</th>
               <th class="col-index">Subject</th>
-              <th class="col-index">procedure_action</th>
-              <th class="col-index">special_contexts</th>
+              <th class="col-index">Scope</th>
+              <!-- <th class="col-index">procedure_action</th>
+              <th class="col-index">special_contexts</th> -->
               <!-- <th class="col-index">Keywords</th> -->
               <th class="col-index">Actions</th>
             </tr>
@@ -2427,11 +2534,16 @@ onMounted(() => {
 
           <tbody>
             <tr v-if="chunksData.length === 0">
-              <td colspan="5" style="text-align: center; padding: 20px; color: #999;">
+              <td colspan="8" style="text-align: center; padding: 20px; color: #999;">
                 {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
               </td>
             </tr>
-            <tr v-for="(item, idx) in sortedFilteredChunks" :key="idx">
+            <tr
+              v-for="(item, idx) in sortedFilteredChunks"
+              :id="`chunk-row-${item.id}`"
+              :key="item.id || idx"
+              :class="{ 'chunk-row-focused': exactChunkIdFilter && String(item.id) === exactChunkIdFilter }"
+            >
               <td class="col-index">{{ idx + 1 }}</td>
               <td class="col-content">
                 <div v-if="editingId === item.id" class="edit-input-wrapper">
@@ -2516,6 +2628,9 @@ onMounted(() => {
                 <span v-else>{{ item.subject || '-' }}</span>
               </td>
               <td class="col-index">
+                <span>{{ getChunkTenantScope(item) }}</span>
+              </td>
+              <!-- <td class="col-index">
                 <div v-if="editingId === item.id" class="edit-input-wrapper sc-editor">
                   <div v-if="editingData.procedure_action" class="sc-badge-group sc-edit-tags">
                     <span class="sc-badge pa-badge">
@@ -2568,7 +2683,7 @@ onMounted(() => {
                   </template>
                   <span v-else>-</span>
                 </div>
-              </td>
+              </td> -->
               <td class="col-index action-cell">
                 <div v-if="editingId === item.id" class="action-buttons">
                   <button class="btn-save" @click="saveEditChunk()" :disabled="isSaving">💾</button>
@@ -2992,12 +3107,17 @@ onMounted(() => {
           Không có tài liệu
         </div>
         
-        <div v-for="(chunk, idx) in selectedMessageChunks" :key="idx" style="margin-bottom: 24px; padding: 16px; background: #f5f5f5; border-radius: 8px; border: 1px solid #ddd;">
+        <div v-for="(chunk, idx) in selectedMessageChunks" :key="chunk.id || idx" style="margin-bottom: 24px; padding: 16px; background: #f5f5f5; border-radius: 8px; border: 1px solid #ddd;">
           <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
             <h4 style="margin: 0; color: #333;">📄 Tài liệu {{ idx + 1 }}</h4>
-            <span v-if="chunk.confidence_score" style="background: #4ade80; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9em;">
-              Score: {{ (chunk.confidence_score * 100).toFixed(0) }}%
-            </span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span v-if="chunk.confidence_score" style="background: #4ade80; color: white; padding: 4px 12px; border-radius: 4px; font-size: 0.9em;">
+                Score: {{ (chunk.confidence_score * 100).toFixed(0) }}%
+              </span>
+              <button class="btn-view-chunks" @click="filterChunkFromReference(chunk)">
+                Lọc chunk này
+              </button>
+            </div>
           </div>
           
           <div v-if="chunk.category" style="margin-bottom: 8px;">
@@ -3083,6 +3203,10 @@ body{
   background-color: #fde047;
   padding: 2px 4px;
   border-radius: 4px;
+}
+
+.chunk-row-focused {
+  background: rgba(59, 130, 246, 0.12);
 }
 
 /* special_contexts badges */
