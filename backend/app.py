@@ -391,6 +391,36 @@ def resolve_target_tenant_code_cached(current_tenant_code, scope):
     return value
 
 def get_active_prompt_templates_map():
+    """
+    Xây map prompt templates để pick_prompt_template() dùng trong luồng chat.
+
+    Legacy: prompt_templates.prompt_type -> content
+    System: system_prompts.name -> content (ưu tiên system_prompts để bạn "copy nội dung" sang đây)
+    """
+    templates = {}
+
+    # 1) Ưu tiên system_prompts (mặc định key lấy từ `name`)
+    try:
+        sys_res = (
+            supabase
+            .table("system_prompts")
+            .select("name, content, created_at")
+            .eq("is_active", True)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        for row in (sys_res.data or []):
+            prompt_type = (row.get("name") or "").strip()
+            if not prompt_type or prompt_type in templates:
+                continue
+            content = (row.get("content") or "").strip()
+            if content:
+                templates[prompt_type] = content
+    except Exception:
+        # Nếu bảng system_prompts chưa sẵn thì fallback legacy bên dưới
+        pass
+
+    # 2) Fallback legacy prompt_templates cho các prompt_type chưa có trong system_prompts
     response = (
         supabase
         .table("prompt_templates")
@@ -400,7 +430,6 @@ def get_active_prompt_templates_map():
         .execute()
     )
 
-    templates = {}
     for row in (response.data or []):
         prompt_type = (row.get("prompt_type") or "").strip()
         if not prompt_type or prompt_type in templates:
@@ -517,6 +546,28 @@ def invalidate_prompt_templates_cache():
     cache_backend.delete(_prompt_templates_cache, _cache_key("prompt_templates", "active"))
 
 
+def _parse_prompt_description_meta(description):
+    """
+    Legacy `prompt_templates.description` (có thể) chứa JSON:
+      {"scope":"general","channel":"all"}
+    """
+    scope = "general"
+    channel = "all"
+
+    if not description:
+        return scope, channel
+
+    try:
+        obj = description if isinstance(description, dict) else json.loads(str(description))
+        if isinstance(obj, dict):
+            scope = (obj.get("scope") or scope) or "general"
+            channel = (obj.get("channel") or channel) or "all"
+    except Exception:
+        pass
+
+    return scope, channel
+
+
 def detect_query_cached(user_text: str, context: str):
     canonical = _canonical_query_for_cache(user_text)
     context_hash = hashlib.sha1((context or "").encode("utf-8")).hexdigest()
@@ -607,27 +658,36 @@ def v2_list_chunks():
         per_page = _to_int(request.args.get("per_page"), 20)
         category = (request.args.get("category") or "").strip() or None
         subject = (request.args.get("subject") or "").strip() or None
+        scope = (request.args.get("scope") or "").strip() or None
         search = (request.args.get("search") or "").strip() or None
 
         # Hỗ trợ cả tenant_id (từ hệ thống chính) và tenant_code (cũ)
+        # Nếu không truyền tenant thì trả về all tenants (phục vụ màn hình quản trị tổng hợp).
         tenant_id = request.args.get("tenant_id")
         raw_tenant_code = request.args.get("tenant_code")
-        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
-        if err:
-            return jsonify({"error": err}), 400
-        if not tenant_exists(tenant_code):
-            return jsonify({"error": "tenant_code does not exist"}), 400
+        tenant_code = None
+        if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
+            tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+            if err:
+                return jsonify({"error": err}), 400
+            if not tenant_exists(tenant_code):
+                return jsonify({"error": "tenant_code does not exist"}), 400
 
         page, per_page, start, end = _paginate(page, per_page)
 
         base_query = supabase.table("documents").select(
-            "id, text_content, category, subject, updated_at"
-        ).eq("tenant_code", tenant_code)
+            "id, text_content, category, subject, scope, tenant_code, updated_at"
+        )
+
+        if tenant_code:
+            base_query = base_query.eq("tenant_code", tenant_code)
 
         if category:
             base_query = base_query.eq("category", category)
         if subject:
             base_query = base_query.eq("subject", subject)
+        if scope:
+            base_query = base_query.eq("scope", scope)
 
         # Fetch all matching rows first to compute total and then page in memory.
         # This keeps pagination and search consistent for now.
@@ -652,10 +712,12 @@ def v2_list_chunks():
                 "content": row.get("text_content"),
                 "category": row.get("category"),
                 "subject": row.get("subject"),
+                "scope": row.get("scope"),
+                "tenant_code": row.get("tenant_code"),
                 "source": None,
                 "sourceType": None,
                 "tokens": None,
-                "createdAt": row.get("created_at") or row.get("updated_at"),
+                "createdAt": row.get("updated_at"),
             }
             for row in page_rows
         ]
@@ -692,15 +754,20 @@ def v2_create_chunk():
 
         category = (data.get("category") or "").strip() or None
         subject = (data.get("subject") or "").strip() or None
+        scope = (data.get("scope") or "").strip() or "xa_phuong"
 
-        # Hỗ trợ cả tenant_id và tenant_code
-        tenant_id = data.get("tenant_id") or request.args.get("tenant_id")
-        raw_tenant_code = data.get("tenant_code") or request.args.get("tenant_code")
-        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
-        if err:
-            return jsonify({"error": err}), 400
-        if not tenant_exists(tenant_code):
-            return jsonify({"error": "tenant_code does not exist"}), 400
+        # Hỗ trợ cả tenant_id và tenant_code.
+        # Riêng `scope == "quoc_gia"`: cho phép tạo chunk "null tenant" (tenant_code = None)
+        # theo logic legacy ở `/api/create-chunk`.
+        tenant_code = None
+        if scope != "quoc_gia":
+            tenant_id = data.get("tenant_id") or request.args.get("tenant_id")
+            raw_tenant_code = data.get("tenant_code") or request.args.get("tenant_code")
+            tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+            if err:
+                return jsonify({"error": err}), 400
+            if not tenant_exists(tenant_code):
+                return jsonify({"error": "tenant_code does not exist"}), 400
         embedding = get_proc_embedding(content)
         if embedding is None:
             return jsonify({"error": "Failed to create embedding"}), 500
@@ -709,7 +776,7 @@ def v2_create_chunk():
 
         row = {
             "tenant_code": tenant_code,
-            "scope": "xa_phuong",
+            "scope": scope,
             "procedure_name": procedure_name,
             "text_content": content,
             "normalized_text": normalize_text(procedure_name or content),
@@ -726,6 +793,8 @@ def v2_create_chunk():
             "content": created.get("text_content") if isinstance(created, dict) else content,
             "category": created.get("category") if isinstance(created, dict) else category,
             "subject": created.get("subject") if isinstance(created, dict) else subject,
+            "scope": created.get("scope") if isinstance(created, dict) else scope,
+            "tenant_code": created.get("tenant_code") if isinstance(created, dict) else tenant_code,
             "source": None,
             "sourceType": None,
             "tokens": None,
@@ -761,6 +830,8 @@ def v2_update_chunk(chunk_id):
             patch["category"] = (data.get("category") or "").strip() or None
         if "subject" in data:
             patch["subject"] = (data.get("subject") or "").strip() or None
+        if "scope" in data:
+            patch["scope"] = (data.get("scope") or "").strip() or None
         if "source" in data:
             patch["source"] = (data.get("source") or "").strip() or None
         if "sourceType" in data:
@@ -781,6 +852,8 @@ def v2_update_chunk(chunk_id):
             "content": updated.get("text_content"),
             "category": updated.get("category"),
             "subject": updated.get("subject"),
+            "scope": updated.get("scope"),
+            "tenant_code": updated.get("tenant_code"),
             "source": updated.get("source"),
             "sourceType": updated.get("sourceType"),
             "tokens": updated.get("tokens"),
@@ -802,30 +875,33 @@ def v2_delete_chunk(chunk_id):
         return jsonify({"error": str(e)}), 500
 
 
-# System prompts (expects a table named `system_prompts`)
+# System prompts (adapter)
+# Legacy hiện tại dùng table `prompt_templates`, nên expose endpoint `/api/system-prompts` theo format dashboard.
 @app.route('/api/system-prompts', methods=['GET'])
 def v2_list_system_prompts():
     try:
         res = (
             supabase
-            .table("system_prompts")
-            .select("id, name, content, scope, channel, is_active, created_at")
+            .table("prompt_templates")
+            .select("id, prompt_name, content, description, is_active, created_at")
             .order("created_at", desc=True)
             .execute()
         )
         rows = res.data or []
-        items = [
-            {
-                "id": r.get("id"),
-                "name": r.get("name"),
-                "content": r.get("content"),
-                "scope": r.get("scope"),
-                "channel": r.get("channel"),
-                "isActive": bool(r.get("is_active")),
-                "createdAt": r.get("created_at"),
-            }
-            for r in rows
-        ]
+        items = []
+        for r in rows:
+            scope, channel = _parse_prompt_description_meta(r.get("description"))
+            items.append(
+                {
+                    "id": r.get("id"),
+                    "name": r.get("prompt_name"),
+                    "content": r.get("content"),
+                    "scope": scope,
+                    "channel": channel,
+                    "isActive": bool(r.get("is_active")),
+                    "createdAt": r.get("created_at"),
+                }
+            )
         return jsonify({"data": items}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -851,25 +927,33 @@ def v2_create_system_prompt():
         if not scope:
             return jsonify({"error": "scope is required"}), 400
 
+        # Adapter: hệ thống hiện tại chỉ có legacy `prompt_templates`.
+        # prompt_type bắt buộc => tạm set theo name để có thể tạo record.
+        prompt_type = name
+        description_meta = {"scope": scope, "channel": channel or "all"}
+
         row = {
-            "name": name,
+            "prompt_name": name,
+            "prompt_type": prompt_type,
             "content": content,
-            "scope": scope,
-            "channel": channel,
+            "description": json.dumps(description_meta),
+            "version": 1,
             "is_active": is_active,
         }
-        res = supabase.table("system_prompts").insert(row).execute()
+        res = supabase.table("prompt_templates").insert(row).execute()
         created = (res.data or [None])[0] if isinstance(res.data, list) else res.data
 
         out = {
             "id": created.get("id") if isinstance(created, dict) else None,
-            "name": created.get("name") if isinstance(created, dict) else name,
+            "name": created.get("prompt_name") if isinstance(created, dict) else name,
             "content": created.get("content") if isinstance(created, dict) else content,
-            "scope": created.get("scope") if isinstance(created, dict) else scope,
-            "channel": created.get("channel") if isinstance(created, dict) else channel,
+            "scope": scope,
+            "channel": channel or "all",
             "isActive": bool(created.get("is_active")) if isinstance(created, dict) else is_active,
             "createdAt": created.get("created_at") if isinstance(created, dict) else None,
         }
+        # Prompt templates (chat) depend on active prompt contents.
+        invalidate_prompt_templates_cache()
         return jsonify({"data": out}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -882,40 +966,65 @@ def v2_update_system_prompt(prompt_id):
         if err:
             return err
 
+        current_res = (
+            supabase
+            .table("prompt_templates")
+            .select("id, prompt_name, content, description, is_active, created_at")
+            .eq("id", prompt_id)
+            .single()
+            .execute()
+        )
+        current = current_res.data or {}
+        if not current:
+            return jsonify({"error": "System prompt not found"}), 404
+
+        cur_scope, cur_channel = _parse_prompt_description_meta(current.get("description"))
+        new_scope = cur_scope
+        new_channel = cur_channel
+
         patch = {}
         if "name" in data:
-            patch["name"] = (data.get("name") or "").strip()
-            if not patch["name"]:
+            new_name = (data.get("name") or "").strip()
+            if not new_name:
                 return jsonify({"error": "name is required"}), 400
+            patch["prompt_name"] = new_name
+
         if "content" in data:
-            patch["content"] = (data.get("content") or "").strip()
-            if not patch["content"]:
+            new_content = (data.get("content") or "").strip()
+            if not new_content:
                 return jsonify({"error": "content is required"}), 400
+            patch["content"] = new_content
+
         if "scope" in data:
-            patch["scope"] = (data.get("scope") or "").strip()
-            if not patch["scope"]:
+            new_scope = (data.get("scope") or "").strip()
+            if not new_scope:
                 return jsonify({"error": "scope is required"}), 400
+
         if "channel" in data:
-            patch["channel"] = (data.get("channel") or "").strip() or None
+            ch = (data.get("channel") or "").strip()
+            new_channel = ch or "all"
+
+        if "scope" in data or "channel" in data:
+            patch["description"] = json.dumps({"scope": new_scope, "channel": new_channel})
+
         if "isActive" in data:
             patch["is_active"] = _to_bool(data.get("isActive"), False)
 
         if not patch:
             return jsonify({"error": "No fields to update"}), 400
 
-        res = supabase.table("system_prompts").update(patch).eq("id", prompt_id).execute()
-        if not res.data:
-            return jsonify({"error": "System prompt not found"}), 404
-        updated = res.data[0] if isinstance(res.data, list) else res.data
+        supabase.table("prompt_templates").update(patch).eq("id", prompt_id).execute()
+
         out = {
-            "id": updated.get("id"),
-            "name": updated.get("name"),
-            "content": updated.get("content"),
-            "scope": updated.get("scope"),
-            "channel": updated.get("channel"),
-            "isActive": bool(updated.get("is_active")),
-            "createdAt": updated.get("created_at"),
+            "id": prompt_id,
+            "name": patch.get("prompt_name", current.get("prompt_name")),
+            "content": patch.get("content", current.get("content")),
+            "scope": new_scope,
+            "channel": new_channel,
+            "isActive": bool(patch.get("is_active", current.get("is_active"))),
+            "createdAt": current.get("created_at"),
         }
+        invalidate_prompt_templates_cache()
         return jsonify({"data": out}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -924,9 +1033,10 @@ def v2_update_system_prompt(prompt_id):
 @app.route('/api/system-prompts/<prompt_id>', methods=['DELETE'])
 def v2_delete_system_prompt(prompt_id):
     try:
-        res = supabase.table("system_prompts").delete().eq("id", prompt_id).execute()
+        res = supabase.table("prompt_templates").delete().eq("id", prompt_id).execute()
         if not res.data:
             return jsonify({"error": "System prompt not found"}), 404
+        invalidate_prompt_templates_cache()
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1217,12 +1327,25 @@ def v2_list_chat_sessions():
         channel = (request.args.get("channel") or "").strip() or None  # not stored currently
         from_ts = (request.args.get("from") or "").strip() or None
         to_ts = (request.args.get("to") or "").strip() or None
+        tenant_id = request.args.get("tenant_id")
+        raw_tenant_code = request.args.get("tenant_code")
+
+        tenant_code = None
+        if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
+            tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+            if err:
+                return jsonify({"error": err}), 400
+            if not tenant_exists(tenant_code):
+                return jsonify({"error": "tenant_code does not exist"}), 400
 
         page, per_page, start, end = _paginate(page, per_page)
 
         q = supabase.table("log_query").select(
             "session_chat, raw_query, answer, created_at, tenant_code"
         ).eq("event_type", "normal").order("created_at", desc=True)
+
+        if tenant_code:
+            q = q.eq("tenant_code", tenant_code)
 
         if from_ts:
             q = q.gte("created_at", from_ts)
@@ -1266,15 +1389,28 @@ def v2_list_chat_sessions():
 @app.route('/api/chat-sessions/<session_id>', methods=['GET'])
 def v2_get_chat_session(session_id):
     try:
+        tenant_id = request.args.get("tenant_id")
+        raw_tenant_code = request.args.get("tenant_code")
+
+        tenant_code = None
+        if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
+            tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+            if err:
+                return jsonify({"error": err}), 400
+            if not tenant_exists(tenant_code):
+                return jsonify({"error": "tenant_code does not exist"}), 400
+
         res = (
             supabase
             .table("log_query")
             .select("raw_query, answer, created_at, event_type, tenant_code")
             .eq("session_chat", session_id)
             .eq("event_type", "normal")
-            .order("created_at")
-            .execute()
         )
+        if tenant_code:
+            res = res.eq("tenant_code", tenant_code)
+
+        res = res.order("created_at").execute()
         rows = res.data or []
         messages = []
         for r in rows:
@@ -1321,13 +1457,34 @@ def get_alias():
 @app.route('/api/get-tenants', methods=['GET'])
 def get_tenants():
     try:
+        has_chunks_only = _to_bool(request.args.get("has_chunks_only"), default=False)
+
         response = supabase.table("tenants") \
             .select("id, tenant_code, scope, parent_id") \
             .order("tenant_code") \
             .execute()
 
+        tenants = response.data or []
+
+        if has_chunks_only:
+            # Chỉ giữ tenant có ít nhất 1 chunk trong bảng documents
+            docs_res = supabase.table("documents") \
+                .select("tenant_code") \
+                .execute()
+            docs = docs_res.data or []
+            tenant_codes_with_chunks = {
+                (row.get("tenant_code") or "").strip()
+                for row in docs
+                if (row.get("tenant_code") or "").strip()
+            }
+
+            tenants = [
+                t for t in tenants
+                if (t.get("tenant_code") or "").strip() in tenant_codes_with_chunks
+            ]
+
         return jsonify({
-            "tenants": response.data or []
+            "tenants": tenants
         }), 200
     except Exception as e:
         return jsonify({
