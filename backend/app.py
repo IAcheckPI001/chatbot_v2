@@ -2531,7 +2531,7 @@ def chat_stream():
                         "p_procedure": normalize_text(procedure_name),
                         "p_procedure_action": procedure_action,
                         "p_special_contexts": special_contexts,
-                        "p_limit": 4
+                        "p_limit": 3
                     }
                 ).execute()
                 chunks = response.data or []
@@ -2568,16 +2568,16 @@ def chat_stream():
             # chunks = export_metadata_filter_chunk(category, user_message)
             context = "\n\n".join(
                 f"### Tài liệu {i+1}\n{chunk['text_content']}"
-                for i, chunk in enumerate(chunks[:5])
+                for i, chunk in enumerate(chunks)
             ) if chunks else "Không tìm thấy tài liệu phù hợp."
 
             print(f"Context length for LLM: {len(context)}")
 
             yield from emit_log("Anh/chị chờ chút, đang tổng hợp câu trả lời", force=True)
-            answer = "\n\n".join(
-                f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
-                for i, chunk in enumerate(chunks[:chunk_generate])
-            )
+            # answer = "\n\n".join(
+            #     f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
+            #     for i, chunk in enumerate(chunks)
+            # )
     
             full_answer = ""
             for token in llm_answer_procedure_stream(user_message, context, prompt_template=answer_procedure_prompt):
@@ -2706,7 +2706,10 @@ def chat_stream():
                 return
             
         scope = extract_scope(user_message)
-        tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
+        resolved_tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
+        if resolved_tenant_code is None and scope == "xa_phuong":
+            resolved_tenant_code = tenant_code
+        tenant_code = resolved_tenant_code
 
         end = time.perf_counter()
         duration = (end - start_flow) * 1000 
@@ -2794,10 +2797,10 @@ def chat_stream():
         context = "\n\n".join(context_parts) if context_parts else "Không tìm thấy tài liệu phù hợp."
 
             
-        answer = "\n\n".join(
-            f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
-            for i, chunk in enumerate(chunks[:5])
-        )
+        # answer = "\n\n".join(
+        #     f"Sử dụng các tài liệu sau:\n### Tài liệu {i+1}\n{chunk['text_content']}"
+        #     for i, chunk in enumerate(chunks[:5])
+        # )
         
         yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
 
@@ -3041,7 +3044,7 @@ def chat():
                         "p_procedure": normalized_procedure,
                         "p_procedure_action": procedure_action,
                         "p_special_contexts": special_contexts,
-                        "p_limit": 4
+                        "p_limit": 3
                     }
                 ).execute()
                 chunks = response.data or []
@@ -3117,7 +3120,10 @@ def chat():
             }), 200
 
         scope = extract_scope(user_message)
-        tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
+        resolved_tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
+        if resolved_tenant_code is None and scope == "xa_phuong":
+            resolved_tenant_code = tenant_code
+        tenant_code = resolved_tenant_code
         
         if category == "phan_anh_kien_nghi":
             subject = classify_phan_anh_cached(user_message, tenant_code, prompt_template=classify_subject_phan_anh_prompt)

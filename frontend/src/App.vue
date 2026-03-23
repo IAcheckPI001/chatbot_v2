@@ -275,6 +275,7 @@ function highlightChunk(text: string) {
 type ChatMessage = {
   text: string
   from: 'user' | 'bot'
+  createdAt?: number
   thoughts?: string[]
   showThoughts?: boolean
   isThinking?: boolean
@@ -298,6 +299,15 @@ function getThinkingThought(msg: ChatMessage) {
 
   const thoughts = msg.thoughts ?? []
   return thoughts.length ? thoughts[thoughts.length - 1] : ''
+}
+
+function formatMessageTime(timestamp?: number) {
+  if (!timestamp) return ''
+  return new Date(timestamp).toLocaleTimeString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
 }
 
 function updateAutoScrollState() {
@@ -533,8 +543,8 @@ async function sendMessage() {
   const text = userInput.value.trim()
   const sessionId = getSessionId()
 
-  messages.value.push({ text, from: 'user' })
-  messages.value.push({ text: '', from: 'bot', thoughts: [], showThoughts: false, isThinking: true })
+  messages.value.push({ text, from: 'user', createdAt: Date.now() })
+  messages.value.push({ text: '', from: 'bot', thoughts: [], showThoughts: false, isThinking: true, createdAt: Date.now() })
   userInput.value = ''
   responses.value = []
   activeSection.value = 'test'
@@ -573,7 +583,7 @@ async function sendMessage() {
 
         const ensureBotMessage = () => {
           if (botMessageIndex === null) {
-            messages.value.push({ text: '', from: 'bot', thoughts: [], showThoughts: true, isThinking: true })
+            messages.value.push({ text: '', from: 'bot', thoughts: [], showThoughts: true, isThinking: true, createdAt: Date.now() })
             botMessageIndex = messages.value.length - 1
           }
           const idx = botMessageIndex as number
@@ -632,7 +642,7 @@ async function sendMessage() {
         if ('replies' in data) {
           // nếu chưa có message stream thì push mới
           if (botMessageIndex === null) {
-            messages.value.push({ text: String(data.replies || ''), from: 'bot', thoughts: [], showThoughts: false, isThinking: false })
+            messages.value.push({ text: String(data.replies || ''), from: 'bot', thoughts: [], showThoughts: false, isThinking: false, createdAt: Date.now() })
           } else {
             // nếu đang stream thì cập nhật message hiện tại
             const botMessage = messages.value[botMessageIndex]
@@ -685,7 +695,8 @@ async function sendMessage() {
     apiError.value = `Connection error: ${error.message}`
     messages.value.push({
       text: 'Xin lỗi, có lỗi khi kết nối đến server.',
-      from: 'bot'
+      from: 'bot',
+      createdAt: Date.now()
     })
   } finally {
     loadingChat.value = false
@@ -2623,6 +2634,7 @@ onMounted(() => {
           :key="idx" 
           :class="msg.from + '-message'"
         >
+          <div class="message-bubble">
           <div
             v-if="msg.from === 'bot' && msg.isThinking && !msg.text"
             class="thinking-state"
@@ -2670,6 +2682,10 @@ onMounted(() => {
           >
             📄 Xem {{ msg.chunks.length }} tài liệu tham khảo
           </button>
+          </div>
+          <div v-if="msg.text && formatMessageTime(msg.createdAt)" class="message-time">
+            {{ formatMessageTime(msg.createdAt) }}
+          </div>
         </div>
       </div>
 
@@ -3278,24 +3294,47 @@ body{
 }
 
 .bot-message, .user-message {
-  padding: 0px 16px;
+  padding: 0;
   margin: 6px 0;
-  border-radius: 14px;
   max-width: 80%;
   font-size: 1em;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.05);
   white-space: normal;
   font-family: "ui-sans-serif", "-apple-system", "system-ui", "Segoe UI", "Helvetica", "Apple Color Emoji", "Arial", "sans-serif", "Segoe UI Emoji", "Segoe UI Symbol";
 }
 
+.message-bubble {
+  padding: 4px 16px;
+  border-radius: 18px;
+  border: 1px solid #d1d5db;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+
+.message-time {
+  margin-top: 4px;
+  font-size: 0.8em;
+  color: #6b7280;
+  padding: 0 4px;
+}
+
 .bot-message {
-  background: white;
   align-self: flex-start;
 }
 
+.bot-message .message-bubble {
+  background: #f3f4f6;
+}
+
 .user-message {
-  background: #e0e7ff;
   align-self: flex-end;
+}
+
+.user-message .message-bubble {
+  background: #e0e7ff;
+  border-color: #c7d2fe;
+}
+
+.user-message .message-time {
+  text-align: right;
 }
 
 /* Footer */
