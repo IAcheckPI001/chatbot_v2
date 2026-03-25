@@ -2372,11 +2372,11 @@ def chat_stream():
             yield from flush_logs(force=force)
 
         if err:
-            yield f"data: {json.dumps({'replies': err, 'chunks': []})}\n\n"
+            yield f"data: {json.dumps({'replies': err, 'chunks': [], 'done': True})}\n\n"
             return
 
         if not tenant_exists(tenant_code):
-            yield f"data: {json.dumps({'replies': 'Tenant được chọn không tồn tại trong hệ thống.', 'chunks': []})}\n\n"
+            yield f"data: {json.dumps({'replies': 'Tenant được chọn không tồn tại trong hệ thống.', 'chunks': [], 'done': True})}\n\n"
             return
         
         yield from emit_log(f"Đã nhận câu hỏi anh/chị: {origin_mess}")
@@ -2414,15 +2414,15 @@ def chat_stream():
         not_have_content = "Dạ, hiện tại hệ thống đang cập nhật thêm thông tin về phường, các thủ tục để hỗ trợ anh/chị tốt hơn ạ. Anh/chị còn câu hỏi nào thắc mắc không ạ?" 
         banned_replies = "Dạ em chỉ hỗ trợ anh/chị về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường thôi ạ. Anh/chị vui lòng đặt câu hỏi liên quan đến những chủ đề này để được hỗ trợ tốt nhất nhé."
 
-        yield f"data: {json.dumps({'log': f'Nhận message...'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'Nhận message...'})}\n\n"
 
-        yield f"data: {json.dumps({'log': f'Kiểm tra viết tắt'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'Kiểm tra viết tắt'})}\n\n"
         result = resolver.process(user_message)
         user_message = result["expanded"]
         normalized_query = result["normalized"]
 
-        yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
-        yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
         yield from emit_log("Đang xử lý nội dung câu hỏi\n")
         matched_keyword = next(
             (
@@ -2443,9 +2443,9 @@ def chat_stream():
             # log_data["session_chat"]= session_id
             # log_data["response_time_ms"]= round(duration / 1000,2)
             # create_log(log_data)
-            yield f"data: {json.dumps({'log': f'[Blocked] Query: {user_message} => keyword: {matched_keyword}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'[Blocked] Query: {user_message} => keyword: {matched_keyword}'})}\n\n"
             yield from flush_logs(force=True)
-            yield f"data: {json.dumps({'replies': banned_replies, 'chunks': []})}\n\n"
+            yield f"data: {json.dumps({'replies': banned_replies, 'chunks': [], 'done': True})}\n\n"
             return
 
         if not history_data:
@@ -2457,32 +2457,32 @@ def chat_stream():
             end = time.perf_counter()
             duration = (end - start) * 1000 
 
-            yield f"data: {json.dumps({'log': f'[{round(duration / 1000,2)}s] - Câu hỏi hoàn chỉnh (không có lịch sử hội thoại): {user_message}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'[{round(duration / 1000,2)}s] - Câu hỏi hoàn chỉnh (không có lịch sử hội thoại): {user_message}'})}\n\n"
 
         if history_data:
 
             # last_answer = history_data[0]["answer"]
             # print(f"Câu trả lời trước: {last_answer}")
             last_question = history_data[0]["expanded_query"]
-            yield f"data: {json.dumps({'log': f'Câu hỏi trước đó: {last_question}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'Câu hỏi trước đó: {last_question}'})}\n\n"
 
             user_message = rewrite_query_history(user_message, last_question, prompt_template=history_rewrite_prompt)
             normalized_query = normalize_text(user_message)
 
-            yield f"data: {json.dumps({'log': f'Câu hỏi hoàn chỉnh (có lịch sử): {user_message}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'Câu hỏi hoàn chỉnh (có lịch sử): {user_message}'})}\n\n"
 
         yield from emit_log("Đang xác định thông tin cần tra cứu")
 
         res = classify_v2_cached(normalized_query, PREPARED, tenant_code)
         category, subject = res["category"], res["subject"]
-        yield f"data: {json.dumps({'log': f'Category: {category}, Subject: {subject}'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'Category: {category}, Subject: {subject}'})}\n\n"
         
 
         if res["need_llm"]:
             # print(f"Cần LLM để phân loại thêm, đang thực hiện phân loại bằng LLM...")
             # yield f"data: {json.dumps({'log': f'Bắt đầu sử dụng LLM để trích xuất'})}\n\n"
             category_llm = classify_llm_cached(user_message, prompt_template=classify_category_prompt)
-            yield f"data: {json.dumps({'log': f'LLM classify => Category: {category_llm}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'LLM classify => Category: {category_llm}'})}\n\n"
 
             category = normalize_llm_label(category_llm)
         
@@ -2508,7 +2508,7 @@ def chat_stream():
                 return
 
             chunk_response = []
-            yield f"data: {json.dumps({'log': f'=> Phân tích thủ tục : {query_mode}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'=> Phân tích thủ tục : {query_mode}'})}\n\n"
 
             if query_mode == "single_procedure":
                 procedure_name = procedures[0].get("procedure")
@@ -2518,8 +2518,8 @@ def chat_stream():
 
                 yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}")
                 yield from emit_log("Đang tìm các tài liệu liên quan")
-                yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
-                yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
+                # yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
+                # yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
                 response = supabase.rpc(
                     "search_documents_full_hybrid_thu_tuc_v1",
                     {
@@ -2544,8 +2544,8 @@ def chat_stream():
                     # print(f"Thủ tục chính: {proc['procedure']} - {proc['subject']}")
                     yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}")
                     yield from emit_log("Đang tìm các tài liệu liên quan")
-                    yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
-                    yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
+                    # yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
+                    # yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
                     response = supabase.rpc(
                         "search_documents_full_hybrid_thu_tuc_v1",
                         {
@@ -2617,7 +2617,7 @@ def chat_stream():
             print(f"Subject for tuong_tac: {subject}")
             
             yield from emit_log("Đang xử lý nội dung câu hỏi")
-            yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
 
             if subject == "chao_hoi":
                 full_answer = ""
@@ -2714,8 +2714,8 @@ def chat_stream():
         end = time.perf_counter()
         duration = (end - start_flow) * 1000 
 
-        yield f"data: {json.dumps({'log': f'[{round(duration / 1000,2)}s]=> Xác định scope: {scope}'})}\n\n"
-        yield f"data: {json.dumps({'log': f'=> Tenant code tham vấn: {tenant_code}'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'[{round(duration / 1000,2)}s]=> Xác định scope: {scope}'})}\n\n"
+        # yield f"data: {json.dumps({'log': f'=> Tenant code tham vấn: {tenant_code}'})}\n\n"
 
         if category == "phan_anh_kien_nghi":
             subject = classify_phan_anh_cached(user_message, tenant_code, prompt_template=classify_subject_phan_anh_prompt)
@@ -2728,14 +2728,14 @@ def chat_stream():
             #     tenant_code = origin_tenant_code
 
             yield from emit_log("Thuộc phạm vi - phản ánh kiến nghị")
-            yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
 
         if category == "thong_tin_tong_quan":
             subject = classify_tong_quan_cached(user_message, tenant_code, prompt_template=classify_subject_qa_prompt)
             subject = normalize_subject_value(subject)
             # subject = data.get("subject")
             yield from emit_log("Đang tra cứu thông tin tổng quan")
-            yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
         
 
         query_embedding = get_embedding_cached(user_message)
@@ -2752,7 +2752,7 @@ def chat_stream():
         print(f"Initial chunks: {chunks}")
         
         if subject in ["chuc_vu", "nhan_su"]:
-            yield f"data: {json.dumps({'log': f'Kiểm tra nội dung subject là None'})}\n\n"
+            # yield f"data: {json.dumps({'log': f'Kiểm tra nội dung subject là None'})}\n\n"
             best_score = chunks[0]["confidence_score"] if chunks else 0
             if best_score < 0.4:
                 chunks_all = search_documents_full_hybrid_v6_cached(
