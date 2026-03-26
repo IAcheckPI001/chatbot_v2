@@ -1326,16 +1326,16 @@ def v2_list_chat_sessions():
         channel = (request.args.get("channel") or "").strip() or None  # not stored currently
         from_ts = (request.args.get("from") or "").strip() or None
         to_ts = (request.args.get("to") or "").strip() or None
-        tenant_id = request.args.get("tenant_id")
-        raw_tenant_code = request.args.get("tenant_code")
+        # tenant_id = request.args.get("tenant_id")
+        # raw_tenant_code = request.args.get("tenant_code")
 
-        tenant_code = None
-        if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
-            tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
-            if err:
-                return jsonify({"error": err}), 400
-            if not tenant_exists(tenant_code):
-                return jsonify({"error": "tenant_code does not exist"}), 400
+        # tenant_code = None
+        # if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
+        #     tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        #     if err:
+        #         return jsonify({"error": err}), 400
+        #     if not tenant_exists(tenant_code):
+        #         return jsonify({"error": "tenant_code does not exist"}), 400
 
         page, per_page, start, end = _paginate(page, per_page)
 
@@ -1343,8 +1343,8 @@ def v2_list_chat_sessions():
             "session_chat, raw_query, answer, created_at, tenant_code"
         ).eq("event_type", "normal").order("created_at", desc=True)
 
-        if tenant_code:
-            q = q.eq("tenant_code", tenant_code)
+        # if tenant_code:
+        #     q = q.eq("tenant_code", tenant_code)
 
         if from_ts:
             q = q.gte("created_at", from_ts)
@@ -2532,8 +2532,6 @@ def chat_stream():
 
             category = normalize_llm_label(category_llm)
         
-        print(f"Category: {category}")
-        
         if category == "chu_de_cam":
             banned_replies_stream = chunk_text(banned_replies)
             for token in banned_replies_stream:
@@ -2545,7 +2543,7 @@ def chat_stream():
             log_data["detected_category"] = category
             log_data["event_type"] = "banned_topic"
             log_data["answer"]= banned_replies
-            log_data["reason"]= f"LLm xác định nội dung thuộc chủ đề cấm"
+            log_data["reason"]= "LLm xác định nội dung thuộc chủ đề cấm"
             log_data["session_chat"]= session_id
             log_data["response_time_ms"]= round(duration / 1000,2)
             enqueue_log(log_data)
@@ -2566,7 +2564,6 @@ def chat_stream():
                 return
 
             query_mode = meta.get("query_mode")
-            # print(f"Query mode: {query_mode}")
 
             procedures = meta.get("unit") or []
             if not procedures:
@@ -2611,7 +2608,6 @@ def chat_stream():
                     procedure_name = proc['procedure']
                     procedure_action = proc['procedure_action']
                     special_contexts = proc['special_contexts']
-                    # print(f"Thủ tục chính: {proc['procedure']} - {proc['subject']}")
                     yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}\n")
                     yield from emit_log("Đang chọn lọc các tài liệu liên quan\n")
                     # yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
@@ -2724,30 +2720,19 @@ def chat_stream():
             resolved_tenant_code = tenant_code
         tenant_code = resolved_tenant_code
 
-        # end = time.perf_counter()
-        # duration = (end - start_flow) * 1000 
-
-        # yield f"data: {json.dumps({'log': f'[{round(duration / 1000,2)}s]=> Xác định scope: {scope}'})}\n\n"
-        # yield f"data: {json.dumps({'log': f'=> Tenant code tham vấn: {tenant_code}'})}\n\n"
-
         if category == "phan_anh_kien_nghi":
             subject = classify_phan_anh_cached(user_message, tenant_code, prompt_template=classify_subject_phan_anh_prompt)
             subject = normalize_subject_value(subject)
             tenant_code = None
-            # if subject is None:
-            #     category = check_classify_phan_anh_kien_nghi(user_message)
-            #     category = normalize_subject_value(category)
-            #     tenant_code = origin_tenant_code
 
             yield from emit_log("Thuộc phạm vi - phản ánh kiến nghị\n")
-            # yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
 
         if category == "thong_tin_tong_quan":
             subject = classify_tong_quan_cached(user_message, tenant_code, prompt_template=classify_subject_qa_prompt)
             subject = normalize_subject_value(subject)
-            # subject = data.get("subject")
+
             yield from emit_log("Đang tra cứu thông tin tổng quan\n")
-            # yield f"data: {json.dumps({'log': f'=> Subject: {subject}'})}\n\n"
+
         
 
         query_embedding = get_embedding_cached(user_message)
@@ -2780,13 +2765,13 @@ def chat_stream():
                 if best_score_all > best_score:
                     chunks = chunks_all
         
-        id_chunk = chunks[0]["id"] if chunks else None
+        # id_chunk = chunks[0]["id"] if chunks else None
 
-        primary_chunks = chunks[:5]
+        # primary_chunks = chunks[:5]
         context_parts = [
             f"### Tài liệu {i+1}\n{chunk['text_content']}"
-            for i, chunk in enumerate(primary_chunks)
-        ] if primary_chunks else []
+            for i, chunk in enumerate(chunks)
+        ] if chunks else []
 
 
         # yield from emit_log("Đang tìm các tài liệu liên quan")

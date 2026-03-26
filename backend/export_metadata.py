@@ -13,7 +13,7 @@ load_dotenv()
 PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
 
 llm = ChatOpenAI(
-    model_name="gpt-4o-mini",
+    model_name="gpt-4.1-mini",
     temperature=0.0,
     model_kwargs={
         "response_format": {"type": "json_object"}
