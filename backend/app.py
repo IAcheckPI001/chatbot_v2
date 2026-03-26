@@ -1384,7 +1384,6 @@ def v2_list_chat_sessions():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @app.route('/api/chat-sessions/<session_id>', methods=['GET'])
 def v2_get_chat_session(session_id):
     try:
@@ -1398,36 +1397,87 @@ def v2_get_chat_session(session_id):
                 return jsonify({"error": err}), 400
             if not tenant_exists(tenant_code):
                 return jsonify({"error": "tenant_code does not exist"}), 400
-
-        res = (
+        query = (
             supabase
             .table("log_query")
-            .select("raw_query, answer, created_at, event_type, tenant_code")
+            .select("raw_query, answer, created_at")
             .eq("session_chat", session_id)
             .eq("event_type", "normal")
+            .order("created_at")
         )
-        if tenant_code:
-            res = res.eq("tenant_code", tenant_code)
 
-        res = res.order("created_at").execute()
+        res = query.execute()
         rows = res.data or []
+
         messages = []
         for r in rows:
-            ts = r.get("created_at")
-            uq = (r.get("raw_query") or "").strip()
-            aq = (r.get("answer") or "").strip()
-            if uq:
-                messages.append({"role": "user", "content": uq, "timestamp": ts})
-            if aq:
-                messages.append({"role": "bot", "content": aq, "timestamp": ts})
+            if r.get("raw_query"):
+                messages.append({
+                    "role": "user",
+                    "content": r["raw_query"],
+                    "timestamp": r["created_at"]
+                })
+            if r.get("answer"):
+                messages.append({
+                    "role": "bot",
+                    "content": r["answer"],
+                    "timestamp": r["created_at"]
+                })
 
-        payload = {
-            "session": {"id": session_id},
-            "messages": messages,
-        }
-        return jsonify({"data": payload}), 200
+        return jsonify({
+            "session": {
+                "id": session_id
+            },
+            "messages": messages
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# @app.route('/api/chat-sessions/<session_id>', methods=['GET'])
+# def v2_get_chat_session(session_id):
+#     try:
+#         tenant_id = request.args.get("tenant_id")
+#         raw_tenant_code = request.args.get("tenant_code")
+
+#         tenant_code = None
+#         if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
+#             tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+#             if err:
+#                 return jsonify({"error": err}), 400
+#             if not tenant_exists(tenant_code):
+#                 return jsonify({"error": "tenant_code does not exist"}), 400
+
+#         res = (
+#             supabase
+#             .table("log_query")
+#             .select("raw_query, answer, created_at, event_type, tenant_code")
+#             .eq("session_chat", session_id)
+#             .eq("event_type", "normal")
+#         )
+#         if tenant_code:
+#             res = res.eq("tenant_code", tenant_code)
+
+#         res = res.order("created_at").execute()
+#         rows = res.data or []
+#         messages = []
+#         for r in rows:
+#             ts = r.get("created_at")
+#             uq = (r.get("raw_query") or "").strip()
+#             aq = (r.get("answer") or "").strip()
+#             if uq:
+#                 messages.append({"role": "user", "content": uq, "timestamp": ts})
+#             if aq:
+#                 messages.append({"role": "bot", "content": aq, "timestamp": ts})
+
+#         payload = {
+#             "session": {"id": session_id},
+#             "messages": messages,
+#         }
+#         return jsonify({"data": payload}), 200
+#     except Exception as e:
+#         return jsonify({"error": str(e)}), 500
+
+
 
 
 @app.route('/api/get-alias', methods=['GET'])
