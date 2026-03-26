@@ -1,5 +1,7 @@
 
 import re
+import json
+import time
 from utils import normalize_text
 
 
@@ -155,3 +157,39 @@ def apply_semantic_guard(q_norm, results):
 
     results.sort(key=lambda x: x["final_score"], reverse=True)
     return results
+
+def chunk_text(text, max_len=50):
+    # Tách theo dấu câu trước
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    chunks = []
+    for sentence in sentences:
+        words = sentence.split()
+
+        current = ""
+        for word in words:
+            if len(current) + len(word) + 1 <= max_len:
+                current += (" " if current else "") + word
+            else:
+                chunks.append(current)
+                current = word
+
+        if current:
+            chunks.append(current)
+
+    return chunks
+
+
+
+# if __name__ == "__main__":
+#     help_content = "Kính chào anh/chị! Rất vui được hỗ trợ anh/chị. Anh/chị có thể hỏi về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường. Anh/chị cần giúp đỡ về vấn đề gì ạ?"
+#     out_of_score_content = "Nội dung anh/chị hỏi nằm ngoài phạm vi hỗ trợ của hệ thống.\nAnh/chị vui lòng liên hệ đơn vị phù hợp hoặc đặt câu hỏi liên quan đến thủ tục hành chính để được hỗ trợ."
+#     thanks_content = "Dạ, cảm ơn anh/chị. Khi cần thêm thông tin, anh/chị cứ liên hệ lại."
+#     phan_nan_content = "Tôi rất tiếc vì anh/chị chưa hài lòng. Anh/chị hãy nói rõ phần còn vướng, tôi sẽ hỗ trợ lại ngay."
+#     xuc_pham_content = "Tôi vẫn sẵn sàng hỗ trợ anh/chị về nội dung hành chính. Anh/chị vui lòng sử dụng ngôn từ phù hợp để tôi có thể hỗ trợ tốt hơn."
+#     banned_replies = "Dạ em chỉ hỗ trợ anh/chị về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường thôi ạ. Anh/chị vui lòng đặt câu hỏi liên quan đến những chủ đề này để được hỗ trợ tốt nhất nhé."
+
+#     help_content = chunk_text(out_of_score_content)
+    
+#     for token in stream_tokens(help_content):
+#         print(token, end="")
