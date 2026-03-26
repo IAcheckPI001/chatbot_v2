@@ -21,7 +21,7 @@ from embedding import get_proc_embedding, get_embedding
 from utils import SUBJECT_KEYWORDS, GENERAL_INFO_SUBJECT_KEYWORDS, classify, prepare_subject_keywords
 from export_metadata import classify_llm, classify_with_tong_quan, classify_with_phan_anh, classify_with_tuong_tac
 from cache_backend import create_cache_backend
-from system import chunk_text, stream_tokens
+from system import chunk_text
 from scope_detect import extract_scope
 
 PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
@@ -2377,11 +2377,19 @@ def chat_stream():
             yield from flush_logs(force=force)
 
         if err:
-            yield f"data: {json.dumps({'replies': err, 'chunks': [], 'done': True})}\n\n"
+            message = err
+            for token in chunk_text(message):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
             return
 
         if not tenant_exists(tenant_code):
-            yield f"data: {json.dumps({'replies': 'Tenant được chọn không tồn tại trong hệ thống.', 'chunks': [], 'done': True})}\n\n"
+            message = "Tenant được chọn không tồn tại trong hệ thống."
+            for token in chunk_text(message):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
             return
         
         yield from emit_log(f"Đã nhận câu hỏi anh/chị: {origin_mess}")
@@ -2500,6 +2508,11 @@ def chat_stream():
             meta = classify_llm_procedure_cached(user_message, prompt_template=classify_subject_procedure_prompt)
 
             if not meta or not isinstance(meta, dict):
+                message = "Không thể xác định thủ tục hành chính từ câu hỏi. Anh/chị vui lòng đặt câu hỏi rõ ràng hơn hoặc liên hệ trực tiếp để được hỗ trợ."
+                for token in chunk_text(message):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
                 return
 
             query_mode = meta.get("query_mode")
@@ -2507,6 +2520,11 @@ def chat_stream():
 
             procedures = meta.get("unit") or []
             if not procedures:
+                message = "Không thể xác định thủ tục hành chính từ câu hỏi. Anh/chị vui lòng đặt câu hỏi rõ ràng hơn hoặc liên hệ trực tiếp để được hỗ trợ."
+                for token in chunk_text(message):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
                 return
 
             chunk_response = []
