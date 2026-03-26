@@ -2327,7 +2327,7 @@ def chat_stream():
         # ✅ LẤY DATA TRƯỚC
         data = request.json or {}
         session_id = data.get("session_id")
-        user_message = data.get('message', '').strip()
+        user_message = data.get('question', '').strip()
         origin_mess = user_message
         # try:
         #     chunk_generate = int(data.get("chunk_limit", 1))
