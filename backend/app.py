@@ -1390,13 +1390,13 @@ def v2_get_chat_session(session_id):
         tenant_id = request.args.get("tenant_id")
         raw_tenant_code = request.args.get("tenant_code")
 
-        tenant_code = None
-        if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
-            tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
-            if err:
-                return jsonify({"error": err}), 400
-            if not tenant_exists(tenant_code):
-                return jsonify({"error": "tenant_code does not exist"}), 400
+        # tenant_code = None
+        # if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
+        #     tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        #     if err:
+        #         return jsonify({"error": err}), 400
+        #     if not tenant_exists(tenant_code):
+        #         return jsonify({"error": "tenant_code does not exist"}), 400
         query = (
             supabase
             .table("log_query")
