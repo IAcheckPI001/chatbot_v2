@@ -1448,9 +1448,6 @@ def v2_list_chat_sessions():
         # Deduplicate by session_chat keeping latest message (already ordered desc).
         items = []
         for r in rows:
-            response_time_ms = r.get("response_time_ms")
-            processing_time = f"{response_time_ms} ms" if response_time_ms is not None else ""
-
             items.append({
                 "id": str(r.get("id") or f"{r.get('session_chat', '')}_{r.get('created_at', '')}"),
                 "sessionId": r.get("session_chat"),
@@ -1465,7 +1462,7 @@ def v2_list_chat_sessions():
                 "aliasScore": float(r.get("alias_score") or 0),
                 "documentScore": float(r.get("document_score") or 0),
                 "totalScore": float(r.get("confidence_score") or 0),
-                "processingTime": processing_time,
+                "processingTime": float(r.get("response_time_ms") or 0),
                 "createdAt": r.get("created_at"),
                 "tenantCode": r.get("tenant_code"),
             })
