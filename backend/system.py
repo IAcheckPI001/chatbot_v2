@@ -158,28 +158,69 @@ def apply_semantic_guard(q_norm, results):
     results.sort(key=lambda x: x["final_score"], reverse=True)
     return results
 
-def chunk_text(text, max_len=50):
-    # Tách theo dấu câu trước
-    sentences = re.split(r'(?<=[.!?])\s+', text)
+# def chunk_text(text, max_len=50):
+#     # Tách theo dấu câu trước
+#     sentences = re.split(r'(?<=[.!?])\s+', text)
+
+#     chunks = []
+#     for sentence in sentences:
+#         words = sentence.split()
+
+#         current = ""
+#         for word in words:
+#             if len(current) + len(word) + 1 <= max_len:
+#                 current += (" " if current else "") + word
+#             else:
+#                 chunks.append(current)
+#                 current = word
+
+#         if current:
+#             chunks.append(current)
+
+#     return chunks
+
+def chunk_text(text, max_len=100):
+    if not isinstance(text, str):
+        text = str(text or "")
+
+    tokens = re.findall(r'\S+\s*', text)
+
+    if not tokens:
+        return [text]
 
     chunks = []
-    for sentence in sentences:
-        words = sentence.split()
+    current = ""
 
-        current = ""
-        for word in words:
-            if len(current) + len(word) + 1 <= max_len:
-                current += (" " if current else "") + word
-            else:
+    for token in tokens:
+        # 🔥 handle token quá dài
+        if len(token) > max_len:
+            if current:
                 chunks.append(current)
-                current = word
+                current = ""
+            for i in range(0, len(token), max_len):
+                chunks.append(token[i:i+max_len])
+            continue
 
-        if current:
-            chunks.append(current)
+        # nếu thêm token vượt max_len
+        if len(current) + len(token) > max_len:
+            # 🔥 check dấu câu (không dùng regex)
+            if current and current.rstrip().endswith(('.', '!', '?')):
+                chunks.append(current)
+                current = token
+                continue
+
+            if current:
+                chunks.append(current)
+                current = token
+            else:
+                current = token
+        else:
+            current += token
+
+    if current:
+        chunks.append(current)
 
     return chunks
-
-
 
 # if __name__ == "__main__":
 #     help_content = "Kính chào anh/chị! Rất vui được hỗ trợ anh/chị. Anh/chị có thể hỏi về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường. Anh/chị cần giúp đỡ về vấn đề gì ạ?"
