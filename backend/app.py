@@ -72,8 +72,9 @@ def _paginate(page, per_page):
     return page, per_page, start, end
 
 
-def _v2_list_response(items, page, per_page, total=None):
+def _v2_list_response(items, page, per_page, total=None, summary=None):
     total_pages = None
+
     if isinstance(total, int) and total >= 0:
         total_pages = max(1, (total + per_page - 1) // per_page) if per_page > 0 else 1
 
@@ -89,6 +90,9 @@ def _v2_list_response(items, page, per_page, total=None):
     if total_pages is not None:
         payload["pagination"]["total_pages"] = total_pages
         payload["pagination"]["total_items"] = total
+    
+    if summary is not None:
+        payload["summary"] = summary
 
     return payload
 
@@ -1466,9 +1470,26 @@ def v2_list_chat_sessions():
                 "createdAt": r.get("created_at"),
                 "tenantCode": r.get("tenant_code"),
             })
+        
+        total_conversations = len(items)
+        average_score = (
+            sum(item["totalScore"] for item in items) / total_conversations
+            if total_conversations > 0 else 0
+        )
+        average_processing_time_ms = (
+            sum(item["processingTime"] for item in items) / total_conversations
+            if total_conversations > 0 else 0
+        )
 
         paged = items[start:start + per_page]
-        return jsonify(_v2_list_response(paged, page, per_page, total=len(items))), 200
+
+        summary = {
+            "total_conversations": total_conversations,
+            "average_score": round(average_score, 2),
+            "average_processing_time_ms": round(average_processing_time_ms, 2),
+        }
+
+        return jsonify(_v2_list_response(paged, page, per_page, total=total_conversations, summary=summary)), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -2552,8 +2573,8 @@ def chat_stream():
         user_message = result["expanded"]
         normalized_query = result["normalized"]
 
-        # yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
-        # yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
+        yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
+        yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
         yield from emit_log("Đang xử lý nội dung câu hỏi\n")
         matched_keyword = next(
             (
@@ -2585,19 +2606,22 @@ def chat_stream():
             return
         logger.info(f"Câu hỏi người dùng: {origin_mess}")
         if not history_data:
+            yield f"data: {json.dumps({'log': f'Viết lại câu hoàn chỉnh (không có lịch sử)'})}\n\n"
             logger.info(f"Chuẩn hóa không có lịch sử")
             start = time.perf_counter()
             user_message = rewrite_query(user_message, prompt_template=None)
 
             normalized_query = normalize_text(user_message)
+            yield f"data: {json.dumps({'log': f'Câu hỏi sau khi viết lại: {user_message}'})}\n\n"
 
         if history_data:
-
+            yield f"data: {json.dumps({'log': f'Viết lại câu hoàn chỉnh (Có lịch sử)'})}\n\n"
             last_question = history_data[0]["expanded_query"]
             logger.info(f"Câu hỏi trước: {last_question}")
 
             user_message = rewrite_query_history(user_message, last_question, prompt_template=history_rewrite_prompt)
             normalized_query = normalize_text(user_message)
+            yield f"data: {json.dumps({'log': f'Câu hỏi sau khi viết lại: {user_message}'})}\n\n"
 
         yield from emit_log("Đang xác định thông tin cần tra cứu\n")
         
@@ -2611,6 +2635,7 @@ def chat_stream():
             category = normalize_llm_label(category_llm)
         
         logger.info(f"Category được xác định: {category}")
+        yield f"data: {json.dumps({'log': f'Category được xác định: {category}'})}\n\n"
 
         if category == "chu_de_cam":
             banned_replies_stream = chunk_text(banned_replies)
@@ -2675,8 +2700,8 @@ def chat_stream():
 
                 yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}\n")
                 yield from emit_log("Đang chọn lọc các tài liệu liên quan\n")
-                # yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
-                # yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
+                yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
+                yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
                 response = supabase.rpc(
                     "search_documents_full_hybrid_thu_tuc_v1",
                     {
@@ -2700,8 +2725,8 @@ def chat_stream():
                     special_contexts = proc['special_contexts']
                     yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}\n")
                     yield from emit_log("Đang chọn lọc các tài liệu liên quan\n")
-                    # yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
-                    # yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
+                    yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
+                    yield f"data: {json.dumps({'log': f'=> Procedure_action: {procedure_action}, Special_contexts: {special_contexts}'})}\n\n"
                     response = supabase.rpc(
                         "search_documents_full_hybrid_thu_tuc_v1",
                         {
@@ -2792,9 +2817,11 @@ def chat_stream():
         if category == "tuong_tac":
             subject = classify_tuong_tac_cached(user_message, tenant_code, prompt_template=classify_subject_tuong_tac_prompt)
             subject = normalize_subject_value(subject)
-            logger.info(f"=> Subject: {subject}")
             if subject is None:
                 subject = "chao_hoi"
+            
+            yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
+            logger.info(f"=> Subject: {subject}")
             
             yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
 
@@ -2842,11 +2869,16 @@ def chat_stream():
             resolved_tenant_code = tenant_code
         tenant_code = resolved_tenant_code
 
+        logger.info(f"=> Scope: {scope}, Resolved tenant code: {tenant_code}")
+        yield f"data: {json.dumps({'log': f'Scope: {scope}, Resolved tenant code: {tenant_code}'})}\n\n"
+
         if category == "phan_anh_kien_nghi":
             subject = classify_phan_anh_cached(user_message, tenant_code, prompt_template=classify_subject_phan_anh_prompt)
             subject = normalize_subject_value(subject)
             tenant_code = None
             logger.info(f"=> Subject: {subject}")
+            yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
+
 
             yield from emit_log("Thuộc phạm vi - phản ánh kiến nghị\n")
 
@@ -2854,6 +2886,7 @@ def chat_stream():
             subject = classify_tong_quan_cached(user_message, tenant_code, prompt_template=classify_subject_qa_prompt)
             subject = normalize_subject_value(subject)
             logger.info(f"=> Subject: {subject}")
+            yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
             yield from emit_log("Đang tra cứu thông tin tổng quan\n")
 
         
