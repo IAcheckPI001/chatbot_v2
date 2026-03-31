@@ -11,14 +11,16 @@ from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from datetime import datetime
 from openai import OpenAI
+from pydantic import BaseModel
+from typing import List
 
 from dotenv import load_dotenv
 from corn import supabase
 from normalize import SINGLE_TOKEN_MAP, CONTEXT_RULES, BANNED_KEYWORDS, normalize_text, normalize_subject_value, AbbreviationResolver
-from model import rewrite_query, rewrite_query_history, detect_query, llm_answer, llm_answer_stream, llm_answer_procedure, llm_answer_procedure_stream, classify_category, check_classify_phan_anh_kien_nghi, check_classify_tuong_tac
+from model import rewrite_query, rewrite_query_history, detect_query, llm_answer, llm_answer_stream, llm_answer_procedure, llm_answer_procedure_stream, classify_category
 from test_demo import classify_v2
 from embedding import get_proc_embedding, get_embedding
-from utils import SUBJECT_KEYWORDS, GENERAL_INFO_SUBJECT_KEYWORDS, classify, prepare_subject_keywords
+from utils import SUBJECT_KEYWORDS, prepare_subject_keywords
 from export_metadata import classify_llm, classify_with_tong_quan, classify_with_phan_anh, classify_with_tuong_tac
 from cache_backend import create_cache_backend
 from system import chunk_text
@@ -621,6 +623,107 @@ def search_documents_full_hybrid_v6_cached(normalized_query, query_embedding, ca
     rows = response.data or []
     _cache_set(_search_v6_cache, key, _clone_rows(rows), SEARCH_V6_CACHE_TTL, SEARCH_V6_CACHE_MAX)
     return rows
+
+keyword_items: list[tuple[str, str]] = []
+patterns: list[tuple[re.Pattern[str], str]] = []
+
+
+def get_keywords():
+    response = (
+        supabase
+        .table("blocked_keywords")
+        .select("id, keyword, normalized_keyword")
+        .order("id")
+        .execute()
+    )
+    return response.data or []
+
+
+@app.get("/keywords")
+def fetch_keywords():
+    data = get_keywords()
+    return {
+        "success": True,
+        "data": data
+    }
+
+
+def load_keywords_to_memory():
+    global keyword_items
+
+    data = get_keywords()
+    keyword_items = [
+        (item["normalized_keyword"], item["keyword"])
+        for item in data
+    ]
+
+
+def build_patterns():
+    global patterns
+    patterns = [
+        (re.compile(rf"\b{re.escape(norm_kw)}\b", re.IGNORECASE), original_kw)
+        for norm_kw, original_kw in keyword_items
+    ]
+
+
+def refresh_keywords_cache():
+    load_keywords_to_memory()
+    build_patterns()
+
+
+def find_blocked_keyword(message: str):
+    for pattern, original_kw in patterns:
+        if pattern.search(message):
+            return original_kw
+    return None
+
+
+def update_keyword(keyword_id: int, new_keyword: str):
+    response = (
+        supabase
+        .table("blocked_keywords")
+        .update({
+            "keyword": new_keyword,
+            "normalized_keyword": normalize_text(new_keyword)
+        })
+        .eq("id", keyword_id)
+        .execute()
+    )
+
+    return response.data or []
+
+
+class UpdateKeywordRequest(BaseModel):
+    new_keyword: str
+
+
+@app.put("/keywords/{keyword_id}")
+def put_keyword(keyword_id: int, req: UpdateKeywordRequest):
+    try:
+        new_keyword = req.new_keyword.strip()
+        if not new_keyword:
+            return jsonify({
+                "error": str(e)
+            }), 500
+
+        result = update_keyword(keyword_id, new_keyword)
+
+        if not result:
+            return jsonify({
+                "error": str(e)
+            }), 500
+
+        refresh_keywords_cache()
+
+        return {
+            "success": True,
+            "message": "Cập nhật từ khóa thành công",
+            "data": result[0]
+        }
+    except Exception as e:
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 @app.route('/api/get-chunks', methods=['GET'])
 def get_chunks():
