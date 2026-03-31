@@ -1324,6 +1324,76 @@ def v2_delete_faq(faq_id):
         return jsonify({"error": str(e)}), 500
 
 
+# # Chat sessions (derived from `log_query.session_chat`)
+# @app.route('/api/chat-sessions', methods=['GET'])
+# def v2_list_chat_sessions():
+#     try:
+#         page = _to_int(request.args.get("page"), 1)
+#         per_page = _to_int(request.args.get("per_page"), 20)
+#         search = (request.args.get("search") or "").strip() or None
+#         channel = (request.args.get("channel") or "").strip() or None  # not stored currently
+#         from_ts = (request.args.get("from") or "").strip() or None
+#         to_ts = (request.args.get("to") or "").strip() or None
+#         # tenant_id = request.args.get("tenant_id")
+#         # raw_tenant_code = request.args.get("tenant_code")
+
+#         # tenant_code = None
+#         # if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
+#         #     tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+#         #     if err:
+#         #         return jsonify({"error": err}), 400
+#         #     if not tenant_exists(tenant_code):
+#         #         return jsonify({"error": "tenant_code does not exist"}), 400
+
+#         page, per_page, start, end = _paginate(page, per_page)
+
+#         q = supabase.table("log_query").select(
+#             "session_chat, raw_query, answer, created_at, tenant_code"
+#         ).eq("event_type", "normal").order("created_at", desc=True)
+
+#         # if tenant_code:
+#         #     q = q.eq("tenant_code", tenant_code)
+
+#         if from_ts:
+#             q = q.gte("created_at", from_ts)
+#         if to_ts:
+#             q = q.lte("created_at", to_ts)
+
+#         res = q.range(0, 2000).execute()
+#         rows = res.data or []
+
+#         if search:
+#             needle = search.lower()
+#             rows = [
+#                 r for r in rows
+#                 if (r.get("raw_query") or "").lower().find(needle) != -1
+#                 or (r.get("answer") or "").lower().find(needle) != -1
+#             ]
+
+#         # Deduplicate by session_chat keeping latest message (already ordered desc).
+#         seen = set()
+#         sessions = []
+#         for r in rows:
+#             sid = r.get("session_chat")
+#             if not sid or sid in seen:
+#                 continue
+#             seen.add(sid)
+#             sessions.append({
+#                 "id": sid,
+#                 "channel": channel,  # best-effort; no persisted channel in log_query
+#                 "tenantCode": r.get("tenant_code"),
+#                 "lastMessageAt": r.get("created_at"),
+#                 "lastUserMessage": r.get("raw_query"),
+#                 "lastBotMessage": r.get("answer"),
+#             })
+
+#         paged = sessions[start:start + per_page]
+#         return jsonify(_v2_list_response(paged, page, per_page, total=len(sessions))), 200
+#     except Exception as e:
+#         return jsonify({"error": str(e)}), 500
+
+
+
 # Chat sessions (derived from `log_query.session_chat`)
 @app.route('/api/chat-sessions', methods=['GET'])
 def v2_list_chat_sessions():
@@ -1348,8 +1418,10 @@ def v2_list_chat_sessions():
         page, per_page, start, end = _paginate(page, per_page)
 
         q = supabase.table("log_query").select(
-            "session_chat, raw_query, answer, created_at, tenant_code"
-        ).eq("event_type", "normal").order("created_at", desc=True)
+            "session_chat, raw_query, expanded_query, detected_category, detected_subject, "
+            "event_type, alias_score, document_score, confidence_score, response_time_ms, "
+            "answer, created_at, tenant_code"
+        ).order("created_at", desc=True)
 
         # if tenant_code:
         #     q = q.eq("tenant_code", tenant_code)
@@ -1366,29 +1438,40 @@ def v2_list_chat_sessions():
             needle = search.lower()
             rows = [
                 r for r in rows
-                if (r.get("raw_query") or "").lower().find(needle) != -1
-                or (r.get("answer") or "").lower().find(needle) != -1
+                if needle in (r.get("raw_query") or "").lower()
+                or needle in (r.get("expanded_query") or "").lower()
+                or needle in (r.get("answer") or "").lower()
+                or needle in (r.get("detected_category") or "").lower()
+                or needle in (r.get("detected_subject") or "").lower()
             ]
 
         # Deduplicate by session_chat keeping latest message (already ordered desc).
-        seen = set()
-        sessions = []
+        items = []
         for r in rows:
-            sid = r.get("session_chat")
-            if not sid or sid in seen:
-                continue
-            seen.add(sid)
-            sessions.append({
-                "id": sid,
-                "channel": channel,  # best-effort; no persisted channel in log_query
+            response_time_ms = r.get("response_time_ms")
+            processing_time = f"{response_time_ms} ms" if response_time_ms is not None else ""
+
+            items.append({
+                "id": str(r.get("id") or f"{r.get('session_chat', '')}_{r.get('created_at', '')}"),
+                "sessionId": r.get("session_chat"),
+                "userName": "",
+                "channel": channel,
+                "messages": r.get("raw_query") or "",
+                "expandedQuery": r.get("expanded_query"),
+                "answer": r.get("answer") or "",
+                "category": r.get("detected_category") or "",
+                "subject": r.get("detected_subject") or "",
+                "responseType": r.get("event_type") or "",
+                "aliasScore": float(r.get("alias_score") or 0),
+                "documentScore": float(r.get("document_score") or 0),
+                "totalScore": float(r.get("confidence_score") or 0),
+                "processingTime": processing_time,
+                "createdAt": r.get("created_at"),
                 "tenantCode": r.get("tenant_code"),
-                "lastMessageAt": r.get("created_at"),
-                "lastUserMessage": r.get("raw_query"),
-                "lastBotMessage": r.get("answer"),
             })
 
-        paged = sessions[start:start + per_page]
-        return jsonify(_v2_list_response(paged, page, per_page, total=len(sessions))), 200
+        paged = items[start:start + per_page]
+        return jsonify(_v2_list_response(paged, page, per_page, total=len(items))), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
