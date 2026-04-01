@@ -580,11 +580,9 @@ async function sendMessage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: text,
+        question: text,
         session_id: sessionId,
-        use_llm: isLLMEnabled.value,
-        chunk_limit: chunkLimit.value,
-        tenant_code: tenantCode,
+        tenant_code: tenantCode
       })
     })
 
@@ -653,32 +651,10 @@ async function sendMessage() {
             if (botMessage) {
               botMessage.isThinking = false
               botMessage.showThoughts = false
-              botMessage.chunks = Array.isArray(data.chunks) ? data.chunks : []
             }
           }
-          responses.value = Array.isArray(data.chunks) ? data.chunks : []
           botMessageIndex = null
           return
-        }
-
-        if ('replies' in data) {
-          // nếu chưa có message stream thì push mới
-          if (botMessageIndex === null) {
-            messages.value.push({ text: String(data.replies || ''), from: 'bot', thoughts: [], showThoughts: false, isThinking: false, createdAt: Date.now() })
-          } else {
-            // nếu đang stream thì cập nhật message hiện tại
-            const botMessage = messages.value[botMessageIndex]
-            if (botMessage) {
-              botMessage.isThinking = false
-              botMessage.showThoughts = false
-              if (!botMessage.text) {
-                botMessage.text = String(data.replies || '')
-              }
-            }
-          }
-
-          responses.value = Array.isArray(data.chunks) ? data.chunks : []
-          botMessageIndex = null
         }
       } catch (err) {
         console.error('Failed to parse SSE event:', event)

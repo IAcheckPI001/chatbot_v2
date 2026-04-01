@@ -12,7 +12,7 @@ from flask_cors import CORS
 from datetime import datetime
 from openai import OpenAI
 from pydantic import BaseModel
-from typing import List
+from typing import List, Tuple
 
 from dotenv import load_dotenv
 from corn import supabase
@@ -624,8 +624,8 @@ def search_documents_full_hybrid_v6_cached(normalized_query, query_embedding, ca
     _cache_set(_search_v6_cache, key, _clone_rows(rows), SEARCH_V6_CACHE_TTL, SEARCH_V6_CACHE_MAX)
     return rows
 
-keyword_items: list[tuple[str, str]] = []
-patterns: list[tuple[re.Pattern[str], str]] = []
+keyword_items: List[Tuple[str, str]] = []
+patterns: List[Tuple[re.Pattern[str], str]] = []
 
 
 def get_keywords():
@@ -639,7 +639,7 @@ def get_keywords():
     return response.data or []
 
 
-@app.get("/keywords")
+@app.route("/api/keywords", methods=["GET"])
 def fetch_keywords():
     data = get_keywords()
     return {
@@ -658,22 +658,13 @@ def load_keywords_to_memory():
     ]
 
 
-def build_patterns():
-    global patterns
-    patterns = [
-        (re.compile(rf"\b{re.escape(norm_kw)}\b", re.IGNORECASE), original_kw)
-        for norm_kw, original_kw in keyword_items
-    ]
-
-
 def refresh_keywords_cache():
     load_keywords_to_memory()
-    build_patterns()
 
 
-def find_blocked_keyword(message: str):
-    for pattern, original_kw in patterns:
-        if pattern.search(message):
+def find_blocked_keyword(normalized: str):
+    for norm_kw, original_kw in keyword_items:
+        if norm_kw in normalized:
             return original_kw
     return None
 
@@ -696,22 +687,25 @@ def update_keyword(keyword_id: int, new_keyword: str):
 class UpdateKeywordRequest(BaseModel):
     new_keyword: str
 
-
-@app.put("/keywords/{keyword_id}")
-def put_keyword(keyword_id: int, req: UpdateKeywordRequest):
+@app.route("/api/keywords/<keyword_id>", methods=["PUT"])
+def put_keyword(keyword_id: int):
     try:
-        new_keyword = req.new_keyword.strip()
+        body = request.get_json(silent=True) or {}
+        new_keyword = str(body.get("new_keyword", "")).strip()
+
         if not new_keyword:
-            return jsonify({
-                "error": str(e)
-            }), 500
+            return {
+                "success": False,
+                "error": "Từ khóa không được để trống"
+            }
 
         result = update_keyword(keyword_id, new_keyword)
 
         if not result:
-            return jsonify({
-                "error": str(e)
-            }), 500
+            return {
+                "success": False,
+                "error": "Không tìm thấy từ khóa để cập nhật"
+            }
 
         refresh_keywords_cache()
 
@@ -721,9 +715,97 @@ def put_keyword(keyword_id: int, req: UpdateKeywordRequest):
             "data": result[0]
         }
     except Exception as e:
-        return jsonify({
+        return {
+            "success": False,
             "error": str(e)
-        }), 500
+        }
+
+def get_default_answers():
+    response = (
+        supabase
+        .table("default_answers")
+        .select("id, key, content, description")
+        .order("id")
+        .execute()
+    )
+    return response.data or []
+
+@app.route("/api/default-answers", methods=["GET"])
+def fetch_default_answers():
+    data = get_default_answers()
+
+    return {
+        "success": True,
+        "data": data
+    }
+
+def update_default_answer(answer_id: int, new_content: str):
+    response = (
+        supabase
+        .table("default_answers")
+        .update({
+            "content": new_content
+        })
+        .eq("id", answer_id)
+        .execute()
+    )
+
+    return response.data or []
+
+class UpdateDefaultAnswerRequest(BaseModel):
+    content: str
+
+default_answers_cache: dict[str, str] = {}
+def load_default_answers_to_memory():
+    global default_answers_cache
+
+    data = get_default_answers()
+
+    default_answers_cache = {
+        item["key"]: item["content"]
+        for item in data
+    }
+
+def refresh_default_answers_cache():
+    load_default_answers_to_memory()
+
+def get_default_answer(key: str):
+    return default_answers_cache.get(key)
+
+@app.route("/api/default-answers/<answer_id>", methods=["PUT"])
+def put_default_answer(answer_id: int):
+    try:
+        body = request.get_json(silent=True) or {}
+        new_content = str(body.get("content", "")).strip()
+
+        if not new_content:
+            return {
+                "success": False,
+                "error": "Content không được để trống"
+            }
+
+        result = update_default_answer(answer_id, new_content)
+
+        if not result:
+            return {
+                "success": False,
+                "error": "Không tìm thấy bản ghi để update"
+            }
+
+        # 🔥 nếu có cache thì refresh
+        refresh_default_answers_cache()
+
+        return {
+            "success": True,
+            "message": "Cập nhật thành công",
+            "data": result[0]
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 @app.route('/api/get-chunks', methods=['GET'])
 def get_chunks():
@@ -2600,13 +2682,14 @@ def chat_stream():
         logger.info(f"Tenant id: {tenant_id}")
         logger.info(f"Tenant code: {tenant_code}")
 
-        help_content = "Kính chào anh/chị! Rất vui được hỗ trợ anh/chị. Anh/chị có thể hỏi về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường. Anh/chị cần giúp đỡ về vấn đề gì ạ?"
-        out_of_score_content = "Nội dung anh/chị hỏi nằm ngoài phạm vi hỗ trợ của hệ thống.\nAnh/chị vui lòng liên hệ đơn vị phù hợp hoặc đặt câu hỏi liên quan đến thủ tục hành chính để được hỗ trợ."
-        thanks_content = "Dạ, cảm ơn anh/chị. Khi cần thêm thông tin, anh/chị cứ liên hệ lại."
-        phan_nan_content = "Tôi rất tiếc vì anh/chị chưa hài lòng. Anh/chị hãy nói rõ phần còn vướng, tôi sẽ hỗ trợ lại ngay."
-        xuc_pham_content = "Tôi vẫn sẵn sàng hỗ trợ anh/chị về nội dung hành chính. Anh/chị vui lòng sử dụng ngôn từ phù hợp để tôi có thể hỗ trợ tốt hơn."
-        banned_replies = "Dạ em chỉ hỗ trợ anh/chị về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường thôi ạ. Anh/chị vui lòng đặt câu hỏi liên quan đến những chủ đề này để được hỗ trợ tốt nhất nhé."
-        support_content = "Dạ hệ thống đang cập nhật thêm thông tin để hỗ trợ anh/chị tốt hơn. Anh/chị vui lòng đặt câu hỏi liên quan đến thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường để được hỗ trợ nhanh nhất nhé."
+        help_content = get_default_answer("help")
+        out_of_score_content = get_default_answer("out_of_scope")
+        thanks_content = get_default_answer("thanks")
+        phan_nan_content = get_default_answer("complaint")
+        xuc_pham_content = get_default_answer("abuse")
+        banned_replies = get_default_answer("banned")
+        support_content = get_default_answer("support")
+
         LOG_FLUSH_INTERVAL_SECONDS = 0.08
         LOG_BUFFER_MAX = 64
         pending_logs = []
@@ -2679,14 +2762,16 @@ def chat_stream():
         yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
         yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
         yield from emit_log("Đang xử lý nội dung câu hỏi\n")
-        matched_keyword = next(
-            (
-                kw for kw in BANNED_KEYWORDS
-                if kw.lower() in user_message.lower()
-                or normalize_text(kw) in normalized_query
-            ),
-            None
-        )
+        # matched_keyword = next(
+        #     (
+        #         kw for kw in BANNED_KEYWORDS
+        #         if kw.lower() in user_message.lower()
+        #         or normalize_text(kw) in normalized_query
+        #     ),
+        #     None
+        # )
+
+        matched_keyword = find_blocked_keyword(normalized_query)
 
         if matched_keyword:
             yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
@@ -3528,6 +3613,12 @@ def chat():
 def health():
     """Health check endpoint"""
     return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
+
+def init_cache():
+    refresh_keywords_cache()
+    refresh_default_answers_cache()
+
+init_cache()
 
 if __name__ == '__main__':
     app.run(debug=True)
