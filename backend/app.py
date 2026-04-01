@@ -12,7 +12,7 @@ from flask_cors import CORS
 from datetime import datetime
 from openai import OpenAI
 from pydantic import BaseModel
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 from dotenv import load_dotenv
 from corn import supabase
@@ -755,7 +755,7 @@ def update_default_answer(answer_id: int, new_content: str):
 class UpdateDefaultAnswerRequest(BaseModel):
     content: str
 
-default_answers_cache: dict[str, str] = {}
+default_answers_cache: Dict[str, str] = {}
 def load_default_answers_to_memory():
     global default_answers_cache
 
@@ -2673,6 +2673,7 @@ def chat_stream():
         session_id = data.get("session_id")
         user_message = data.get('question', '').strip()
         origin_mess = user_message
+        logger.info(f"Câu hỏi người dùng: {user_message}")
 
         # Hỗ trợ cả tenant_id và tenant_code
         tenant_id = data.get("tenant_id")
@@ -2758,6 +2759,8 @@ def chat_stream():
         result = resolver.process(user_message)
         user_message = result["expanded"]
         normalized_query = result["normalized"]
+
+        logger.info(f"Câu hỏi sau khi xử rule-base từ tắt: {user_message}")
 
         yield f"data: {json.dumps({'log': f'{result}'})}\n\n"
         yield f"data: {json.dumps({'log': f'Kiểm tra blacklist'})}\n\n"
