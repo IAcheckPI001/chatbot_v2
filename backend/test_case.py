@@ -12,13 +12,11 @@ from dotenv import load_dotenv
 import os
 from corn import supabase
 import json
-from normalize import SINGLE_TOKEN_MAP, CONTEXT_RULES, BANNED_KEYWORDS, normalize_text, AbbreviationResolver
-from model import rewrite_query, detect_query, llm_answer, classify_category, check_classify_tuong_tac
+from normalize import SINGLE_TOKEN_MAP, CONTEXT_RULES, normalize_text, AbbreviationResolver
+from model import detect_query, classify_category
 from test_demo import classify_v2
 from embedding import get_embedding
 from utils import SUBJECT_KEYWORDS, prepare_subject_keywords
-from export_metadata import classify_llm, classify_with_tong_quan, classify_with_phan_anh, classify_with_tuong_tac
-from app import classify_llm_cached
 PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
 
 load_dotenv()
@@ -303,142 +301,52 @@ RÀNG BUỘC
 # ============================================================================
 # TEST CASES FOR REWRITE PROMPT ACCURACY
 # ============================================================================
-
-test_cases = [
-    # Sửa sai / đính chính
-    {
-        "last_question": "bí thư phường là ai",
-        "query": "anh nhầm, anh hỏi bí thư tp là ai",
-    },
-    {
-        "last_question": "bí thư phường là ai",
-        "query": "tôi cần biết chủ tịch tp là ai",
-    },
-    {
-        "last_question": "phó chủ tịch xã là ai",
-        "query": "không phải phó chủ tịch, tôi hỏi chủ tịch",
-    },
-    # Không được biến sang thủ tục
-    {
-        "last_question": "chủ tịch xã là ai",
-        "query": "còn khai sinh",
-    },
-    {
-        "last_question": "bí thư phường là ai",
-        "query": "thủ tục kết hôn cần gì",
-    },
-    # Hỏi tiếp cùng chủ đề
-    {
-        "last_question": "địa chỉ ubnd xã ở đâu",
-        "query": "số điện thoại",
-    },
-    {
-        "last_question": "xã có bao nhiêu khu phố",
-        "query": "tên các khu phố là gì",
-    },
-    {
-        "last_question": "ubnd phường làm việc mấy giờ",
-        "query": "thứ 7 có làm không",
-    },
-    {
-        "last_question": "xã thuộc quận nào",
-        "query": "còn tỉnh",
-    },
-    # Đổi đối tượng nhưng giữ mẫu hỏi
-    {
-        "last_question": "địa chỉ ubnd xã ở đâu",
-        "query": "còn trạm y tế",
-    },
-    {
-        "last_question": "số điện thoại ubnd xã là gì",
-        "query": "còn công an xã",
-    },
-    {
-        "last_question": "xã có bao nhiêu khu phố",
-        "query": "còn tổ dân phố",
-    },
-
-    # Mơ hồ / xã giao
-    {
-        "last_question": "địa chỉ ubnd xã ở đâu",
-        "query": "xin chào",
-    },
-    {
-        "last_question": "xã có bao nhiêu khu phố",
-        "query": "ok",
-    },
-    {
-        "last_question": "số điện thoại ubnd xã là gì",
-        "query": "cảm ơn",
-    },
-    # =========================
-    # 4. CASE GIAO THOA / THỰC TẾ CHAT
-    # =========================
-
-    # Người dùng đổi từ thông tin phường sang thủ tục
-    {
-        "last_question": "địa chỉ ubnd xã ở đâu",
-        "query": "làm khai sinh cần gì",
-    },
-    {
-        "last_question": "xã có bao nhiêu khu phố",
-        "query": "đăng ký tạm trú ở đâu",
-    },
-    # Người dùng đổi từ thủ tục sang lãnh đạo
-    {
-        "last_question": "đăng ký kết hôn cần gì",
-        "query": "chủ tịch xã là ai",
-    },
-    {
-        "last_question": "làm cccd ở đâu",
-        "query": "số điện thoại công an xã là gì",
-    },
-    # Người dùng hỏi ngắn, cần khôi phục hợp lý
-    {
-        "last_question": "số điện thoại ủy ban nhân dân xã là gì",
-        "query": "còn địa chỉ",
-    },
-    {
-        "last_question": "trưởng khu phố 1 là ai",
-        "query": "số điện thoại",
-    },
-    {
-        "last_question": "đăng ký khai sinh cần gì",
-        "query": "ở đâu",
-    },
-    # Câu có từ đệm / câu rào trước
-    {
-        "last_question": "bí thư phường là ai",
-        "query": "tôi cần biết số điện thoại",
-    },
-    {
-        "last_question": "địa chỉ ubnd xã ở đâu",
-        "query": "ý tôi là số điện thoại",
-    },
-    # Lỗi lặp từ / gõ sai nhẹ
-    {
-        "last_question": "",
-        "query": "chu tich chu tich xa la ai",
-    },
-    {
-        "last_question": "",
-        "query": "dia chi dia chi ubnd xa o dau",
-    },
-    {
-        "last_question": "đăng ký khai sinh cần gì",
-        "query": "giấy tờ giấy tờ gì",
-    },
-]
+# from utils import SUBJECT_KEYWORDS, prepare_subject_keywords
     
-if __name__ == "__main__":
-    
-    for item in test_cases:
-        last_question = item["last_question"]
-        query = item["query"]
+# PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
 
-        rewritten = rewrite_query(query, last_question)
-        print(f"Last question: {last_question}")
-        print(f"Query: {query}")
-        print(f"Rewritten: {rewritten}")
+# if __name__ == "__main__":
+#     test_cases = [
+#         {"query": "Đoàn thanh niên có hỗ trợ vay vốn không", "expected": "to_chuc_doan_the"},
+#         {"query": "Muốn tham gia đoàn để được lợi gì", "expected": "to_chuc_doan_the"},
+#         {"query": "Có nên vào đoàn không", "expected": "to_chuc_doan_the"},
+#         {"query": "Đoàn có bắt buộc không", "expected": "to_chuc_doan_the"},
+#         {"query": "Không vào đoàn có bị sao không", "expected": "to_chuc_doan_the"},
+#         {"query": "Đoàn có quyền xử phạt không", "expected": "to_chuc_doan_the"},
+
+#         {"query": "Đoàn có cấp giấy tờ gì không", "expected": "thu_tuc_hanh_chinh"},
+#         {"query": "Đoàn xác nhận hồ sơ ở đâu", "expected": "thu_tuc_hanh_chinh"},
+
+#         {"query": "Đoàn có liên quan UBND không", "expected": "thong_tin_tong_quan"},
+#         {"query": "Đoàn thuộc cơ quan nào", "expected": "thong_tin_tong_quan"},
+
+#         {"query": "Ai quản lý đoàn cấp trên", "expected": "to_chuc_bo_may"},
+
+#         {"query": "Đoàn có bao nhiêu thành viên", "expected": "to_chuc_doan_the"},
+#         {"query": "Danh sách đoàn viên", "expected": "to_chuc_doan_the"},
+
+#         {"query": "Đoàn có thu phí bắt buộc không", "expected": "thu_tuc_hanh_chinh"},
+
+#         {"query": "Tham gia đoàn có lợi ích gì", "expected": "to_chuc_doan_the"},
+#         {"query": "Đoàn có chương trình học bổng không", "expected": "to_chuc_doan_the"},
+#         {"query": "Đoàn có hỗ trợ việc làm không", "expected": "to_chuc_doan_the"},
+#         {"query": "Đoàn tổ chức sự kiện khi nào", "expected": "to_chuc_doan_the"},
+#         {"query": "Lịch hoạt động đoàn", "expected": "to_chuc_doan_the"},
+#         {"query": "Đoàn có lớp kỹ năng không", "expected": "to_chuc_doan_the"},
+#     ]
+
+#     for case in test_cases:
+#         query = case["query"]
+#         expected = case["expected"]
+
+#         normalized_query = normalize_text(query)
+#         res = classify_v2(normalized_query, PREPARED)
+#         category, subject = res["category"], res["subject"]
+
+#         if res["need_llm"]:
+#             category_llm = classify_category(query, prompt_template=None)
+#             category = normalize_llm_label(category_llm)
+#             print(f"Câu hỏi: {query}")
+#             print(f"LLM phân loại category: {category_llm} -> {category}")
 
 

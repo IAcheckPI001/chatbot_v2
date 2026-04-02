@@ -6,14 +6,13 @@ import uuid
 import time
 import hashlib
 import random
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from datetime import datetime
 from openai import OpenAI
 from pydantic import BaseModel
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Pattern, Set
 
 from dotenv import load_dotenv
 from corn import supabase
@@ -26,6 +25,7 @@ from export_metadata import classify_llm, classify_with_tong_quan, classify_with
 from cache_backend import create_cache_backend
 from system import chunk_text
 from scope_detect import extract_scope
+from test_unit_type import resolve_unit_type
 
 import logging
 
@@ -36,11 +36,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
-
-
-default_answers_cache: Dict[str, str] = {}
 keyword_items: List[Tuple[str, str]] = []
-cache_lock = threading.Lock()
+patterns: List[Tuple[Pattern, str]] = []
+
+
+tenant_context_cache: Dict[str, dict] = {}
+tenant_code_by_id_cache: Dict[int, str] = {}
+tenant_codes_with_documents: Set[str] = set()
 
 load_dotenv()
 
@@ -50,9 +52,6 @@ CORS(app)
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
 )
-
-class UpdateDefaultAnswerRequest(BaseModel):
-    content: str
 
 def _to_bool(value, default=False):
     if value is None:
@@ -276,40 +275,113 @@ def normalize_tenant_id(value):
     return s
 
 
-def tenant_code_from_id(tenant_id: str):
-    """
-    Nhận tenant_id (ID trong hệ thống chính) và trả về tenant_code tương ứng trong Supabase.tenants.
-    """
-    if tenant_id is None:
-        return None
+def load_tenant_context_to_memory():
+    global tenant_context_cache, tenant_code_by_id_cache
 
-    key = _cache_key("tenant_id_map", tenant_id)
-    cached = _cache_get(_tenant_id_map_cache, key)
-    if cached is not _CACHE_MISS:
-        if cached == _NULL_SENTINEL:
-            return None
-        return cached
-
-    # Giả định bảng tenants có cột id (primary key) và tenant_code
-    response = (
+    res = (
         supabase.table("tenants")
-        .select("tenant_code")
-        .eq("id", tenant_id)
-        .limit(1)
+        .select("id, tenant_code, scope, parent_id, tenant_name, unit_type")
+        .order("tenant_code")
         .execute()
     )
-    row = (response.data or [None])[0] if isinstance(response.data, list) else response.data
-    code = (row or {}).get("tenant_code") if isinstance(row, dict) else None
-    normalized_code = normalize_tenant_code(code)
-    _cache_set(
-        _tenant_id_map_cache,
-        key,
-        normalized_code,
-        TENANT_ID_MAP_CACHE_TTL,
-        TENANT_ID_MAP_CACHE_MAX,
-    )
-    return normalized_code
 
+    rows = res.data or []
+    tenants_by_id: dict[int, dict] = {}
+    tenant_context_cache = {}
+    tenant_code_by_id_cache = {}
+
+    for row in rows:
+        tenant_id = row.get("id")
+        tenant_code = normalize_tenant_code(row.get("tenant_code"))
+        if tenant_id is None or not tenant_code:
+            continue
+
+        normalized_row = {
+            "id": tenant_id,
+            "tenant_code": tenant_code,
+            "scope": row.get("scope"),
+            "parent_id": row.get("parent_id"),
+            "tenant_name": row.get("tenant_name"),
+            "unit_type": row.get("unit_type"),
+        }
+        tenants_by_id[tenant_id] = normalized_row
+        tenant_code_by_id_cache[tenant_id] = tenant_code
+
+    for row in tenants_by_id.values():
+        tenant_code = row["tenant_code"]
+        parent_row = tenants_by_id.get(row.get("parent_id"))
+
+        current_data = {
+            "id": tenant_code,
+            "unit_type": row.get("unit_type"),
+            "scope_type": row.get("scope"),
+            "name": row.get("tenant_name"),
+        }
+
+        parent_data = None
+        if parent_row:
+            parent_data = {
+                "id": parent_row.get("tenant_code"),
+                "unit_type": parent_row.get("unit_type"),
+                "scope_type": parent_row.get("scope"),
+                "name": parent_row.get("tenant_name"),
+            }
+
+        tenant_context_cache[tenant_code] = {
+            "current": current_data,
+            "parent": parent_data
+        }
+
+
+def load_tenant_has_documents_to_memory():
+    global tenant_codes_with_documents
+
+    res = (
+        supabase.table("documents")
+        .select("tenant_code")
+        .execute()
+    )
+
+    rows = res.data or []
+    tenant_codes_with_documents = {
+        code
+        for row in rows
+        if (code := normalize_tenant_code(row.get("tenant_code")))
+    }
+
+
+def refresh_tenant_cache():
+    load_tenant_context_to_memory()
+    load_tenant_has_documents_to_memory()
+
+
+def tenant_code_from_id(tenant_id: int = None):
+    if tenant_id is None:
+        return None
+    return tenant_code_by_id_cache.get(tenant_id)
+
+
+def get_tenant_and_parent_from_memory(tenant_code: str, has_chunks_only: bool = False):
+    tenant_code = normalize_tenant_code(tenant_code)
+    if not tenant_code:
+        return None
+
+    context = tenant_context_cache.get(tenant_code)
+    if not context:
+        return None
+
+    if has_chunks_only and tenant_code not in tenant_codes_with_documents:
+        return None
+
+    return context
+
+
+def get_resolved_tenant_from_memory(tenant_code: str, has_chunks_only: bool = False):
+    context = get_tenant_and_parent_from_memory(tenant_code, has_chunks_only=has_chunks_only)
+    if not context:
+        return None
+
+    return context
 
 def ensure_tenant_code(tenant_id=None, tenant_code=None):
     """
@@ -633,6 +705,7 @@ def search_documents_full_hybrid_v6_cached(normalized_query, query_embedding, ca
     _cache_set(_search_v6_cache, key, _clone_rows(rows), SEARCH_V6_CACHE_TTL, SEARCH_V6_CACHE_MAX)
     return rows
 
+
 def get_keywords():
     response = (
         supabase
@@ -655,13 +728,12 @@ def fetch_keywords():
 
 def load_keywords_to_memory():
     global keyword_items
+
     data = get_keywords()
-    new_items = [
+    keyword_items = [
         (item["normalized_keyword"], item["keyword"])
         for item in data
     ]
-    with cache_lock:
-        keyword_items = new_items
 
 
 def refresh_keywords_cache():
@@ -758,25 +830,19 @@ def update_default_answer(answer_id: int, new_content: str):
 
     return response.data or []
 
-# def load_default_answers_to_memory():
-#     global default_answers_cache
+class UpdateDefaultAnswerRequest(BaseModel):
+    content: str
 
-#     data = get_default_answers()
-
-#     default_answers_cache = {
-#         item["key"]: item["content"]
-#         for item in data
-#     }
-
+default_answers_cache: Dict[str, str] = {}
 def load_default_answers_to_memory():
     global default_answers_cache
+
     data = get_default_answers()
-    new_cache = {
+
+    default_answers_cache = {
         item["key"]: item["content"]
         for item in data
     }
-    with cache_lock:
-        default_answers_cache = new_cache
 
 def refresh_default_answers_cache():
     load_default_answers_to_memory()
@@ -1815,7 +1881,7 @@ def get_tenants():
         has_chunks_only = _to_bool(request.args.get("has_chunks_only"), default=False)
 
         response = supabase.table("tenants") \
-            .select("id, tenant_code, scope, parent_id") \
+            .select("id, tenant_code, scope, parent_id, tenant_name, unit_type") \
             .order("tenant_code") \
             .execute()
 
@@ -2773,6 +2839,7 @@ def chat_stream():
         normalized_query = result["normalized"]
 
         logger.info(f"Câu hỏi sau khi xử rule-base từ tắt: {user_message}")
+
         yield from emit_log("Đang xử lý nội dung câu hỏi\n")
         # matched_keyword = next(
         #     (
@@ -2811,7 +2878,7 @@ def chat_stream():
             user_message = rewrite_query(user_message, prompt_template=None)
 
             normalized_query = normalize_text(user_message)
-            # yield f"data: {json.dumps({'log': f'Câu hỏi sau khi viết lại (không có lịch sử): {user_message}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'Câu hỏi sau khi viết lại (không có lịch sử): {user_message}'})}\n\n"
 
         if history_data:
             last_question = history_data[0]["expanded_query"]
@@ -2819,7 +2886,7 @@ def chat_stream():
 
             user_message = rewrite_query_history(user_message, last_question, prompt_template=history_rewrite_prompt)
             normalized_query = normalize_text(user_message)
-            # yield f"data: {json.dumps({'log': f'Câu hỏi sau khi viết lại (Có lịch sử): {user_message}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'Câu hỏi sau khi viết lại (Có lịch sử): {user_message}'})}\n\n"
 
         yield from emit_log("Đang xác định thông tin cần tra cứu\n")
         
@@ -2833,7 +2900,7 @@ def chat_stream():
             category = normalize_llm_label(category_llm)
         
         logger.info(f"Category được xác định: {category}")
-        # yield f"data: {json.dumps({'log': f'Category được xác định: {category}'})}\n\n"
+        yield f"data: {json.dumps({'log': f'Category được xác định: {category}'})}\n\n"
 
         if category == "chu_de_cam":
             banned_replies_stream = chunk_text(banned_replies)
@@ -2894,10 +2961,11 @@ def chat_stream():
                 procedure_name = procedures[0].get("procedure")
                 procedure_action = procedures[0].get("procedure_action")
                 special_contexts = procedures[0].get("special_contexts") or []
-                subject = procedures[0]['subject'] or subject
+
 
                 yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}\n")
-                # yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}, subject: {subject}'})}\n\n"
+                yield from emit_log("Đang chọn lọc các tài liệu liên quan\n")
+                yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
                 response = supabase.rpc(
                     "search_documents_full_hybrid_thu_tuc_v1",
                     {
@@ -2905,7 +2973,7 @@ def chat_stream():
                         "p_query_embedding": get_embedding_cached(procedure_name),
                         "p_tenant": None,
                         "p_category": category,
-                        "p_subject": subject,
+                        "p_subject": procedures[0]['subject'],
                         "p_procedure": normalize_text(procedure_name),
                         "p_procedure_action": procedure_action,
                         "p_special_contexts": special_contexts,
@@ -2919,9 +2987,9 @@ def chat_stream():
                     procedure_name = proc['procedure']
                     procedure_action = proc['procedure_action']
                     special_contexts = proc['special_contexts']
-                    subject = proc['subject'] or subject
                     yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}\n")
-                    # yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}, subject: {subject}'})}\n\n"
+                    yield from emit_log("Đang chọn lọc các tài liệu liên quan\n")
+                    yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
                     response = supabase.rpc(
                         "search_documents_full_hybrid_thu_tuc_v1",
                         {
@@ -2929,7 +2997,7 @@ def chat_stream():
                             "p_query_embedding": get_embedding_cached(procedure_name),
                             "p_tenant": None,
                             "p_category": category,
-                            "p_subject": subject,
+                            "p_subject": proc['subject'],
                             "p_procedure": normalize_text(procedure_name),
                             "p_procedure_action": procedure_action,
                             "p_special_contexts": special_contexts,
@@ -2949,8 +3017,6 @@ def chat_stream():
                 yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
                 return
             top_score = chunks[0]["confidence_score"] if chunks else 0
-            alias_score = chunks[0]["alias_score"] if chunks else 0
-            document_score = chunks[0]["document_score"] if chunks else 0
             logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
 
             if top_score < 0.2:
@@ -2966,9 +3032,9 @@ def chat_stream():
                 log_data["detected_category"]= category
                 log_data["detected_subject"]= subject
                 log_data["event_type"] = "low_confidence"
-                log_data["alias_score"]= alias_score
-                log_data["document_score"]= document_score
-                log_data["confidence_score"]= top_score
+                log_data["alias_score"]= top_chunk.get("alias_score", 0)
+                log_data["document_score"]= top_score
+                log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
                 log_data["session_chat"]= session_id
                 log_data["response_time_ms"]= round(duration / 1000,2)
                 enqueue_log(log_data)
@@ -2995,13 +3061,14 @@ def chat_stream():
             log_data["tenant_code"] = tenant_code
             log_data["raw_query"] = origin_mess
             log_data["expanded_query"] = user_message
-            log_data["answer"]= answer
+            log_data["answer"]= full_answer
             log_data["detected_category"]= category
             log_data["detected_subject"]= subject
             log_data["event_type"] = "normal"
-            log_data["alias_score"]= alias_score
-            log_data["document_score"]= document_score
-            log_data["confidence_score"]= top_score
+            top_chunk = chunks[0] if chunks else {}
+            log_data["alias_score"]= top_chunk.get("alias_score", 0)
+            log_data["document_score"]= top_score
+            log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
             log_data["session_chat"]= session_id
             log_data["response_time_ms"]= round(duration / 1000,2)
             enqueue_log(log_data)
@@ -3016,7 +3083,7 @@ def chat_stream():
             if subject is None:
                 subject = "chao_hoi"
             
-            # yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
             logger.info(f"=> Subject: {subject}")
             
             yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
@@ -3050,8 +3117,6 @@ def chat_stream():
             log_data["tenant_code"] = tenant_code
             log_data["raw_query"] = origin_mess
             log_data["expanded_query"] = user_message
-            log_data["detected_category"]= category
-            log_data["detected_subject"]= subject
             log_data["answer"]= answer
             log_data["event_type"] = event_type
             log_data["session_chat"]= session_id
@@ -3060,22 +3125,44 @@ def chat_stream():
             yield from flush_logs(force=True)
             yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
             return
-            
+        
         scope = extract_scope(user_message)
+        
+        start = time.perf_counter()
+
+        tenant_ctx = get_resolved_tenant_from_memory(tenant_code)
+
+        logger.info(f"=> {tenant_ctx}")
+
+        result = resolve_unit_type(
+            query=user_message,
+            scope=scope,
+            tenant_ctx=tenant_ctx
+        )
+
+        end_time = time.perf_counter()
+        duration = (end_time - start) * 1000
+        yield f"data: {json.dumps({'log': f'Thời gian xử lý unit type: {duration / 1000:.2f} s'})}\n\n"
+
+        user_message = result["normalized_query"]
+        yield f"data: {json.dumps({'log': f'Câu hỏi đã xử lý unit type: {user_message}'})}\n\n"
+            
         resolved_tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
         if resolved_tenant_code is None and scope == "xa_phuong":
             resolved_tenant_code = tenant_code
         tenant_code = resolved_tenant_code
 
+    
+
         logger.info(f"=> Scope: {scope}, Resolved tenant code: {tenant_code}")
-        # yield f"data: {json.dumps({'log': f'Scope: {scope}, Resolved tenant code: {tenant_code}'})}\n\n"
+        yield f"data: {json.dumps({'log': f'Scope: {scope}, Resolved tenant code: {tenant_code}'})}\n\n"
 
         if category == "phan_anh_kien_nghi":
             subject = classify_phan_anh_cached(user_message, tenant_code, prompt_template=classify_subject_phan_anh_prompt)
             subject = normalize_subject_value(subject)
             tenant_code = None
             logger.info(f"=> Subject: {subject}")
-            # yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
 
 
             yield from emit_log("Thuộc phạm vi - phản ánh kiến nghị\n")
@@ -3084,8 +3171,10 @@ def chat_stream():
             subject = classify_tong_quan_cached(user_message, tenant_code, prompt_template=classify_subject_qa_prompt)
             subject = normalize_subject_value(subject)
             logger.info(f"=> Subject: {subject}")
-            # yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
             yield from emit_log("Đang tra cứu thông tin tổng quan\n")
+
+        
 
         query_embedding = get_embedding_cached(user_message)
 
@@ -3115,6 +3204,8 @@ def chat_stream():
                 # Nếu không subject tốt hơn → dùng nó
                 if best_score_all > best_score:
                     chunks = chunks_all
+        
+        # id_chunk = chunks[0]["id"] if chunks else None
 
         if not chunks:
             for token in chunk_text(support_content):
@@ -3125,8 +3216,6 @@ def chat_stream():
             return
 
         top_score = chunks[0]["confidence_score"] if chunks else 0
-        alias_score = chunks[0]["alias_score"] if chunks else 0
-        document_score = chunks[0]["document_score"] if chunks else 0
         logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
 
         if top_score < 0.2:
@@ -3144,9 +3233,6 @@ def chat_stream():
             log_data["event_type"] = "low_confidence"
             log_data["session_chat"]= session_id
             log_data["response_time_ms"]= round(duration / 1000,2)
-            log_data["alias_score"]= alias_score
-            log_data["document_score"]= document_score
-            log_data["confidence_score"]= top_score
             enqueue_log(log_data)
             yield from flush_logs(force=True)
             yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
@@ -3628,8 +3714,11 @@ def health():
 def init_cache():
     refresh_keywords_cache()
     refresh_default_answers_cache()
+    refresh_tenant_cache()
+    logger.info("Cache initialized successfully.")
 
 init_cache()
 
 if __name__ == '__main__':
     app.run(debug=True)
+
