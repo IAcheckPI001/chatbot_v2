@@ -280,56 +280,56 @@ def keep_original_or_normalize_alias(query: str) -> str:
     return q
 
 
-# def rewrite_unit_type(query: str, from_unit_type: str, to_unit_type: str) -> str:
-#     """
-#     Đổi unit_type trong câu hỏi.
-#     Chỉ dùng cho case không có địa danh explicit.
-#     """
-#     if from_unit_type == to_unit_type:
-#         return keep_original_or_normalize_alias(query)
-
-#     replace_patterns = {
-#         "xa": r"\b(xã|xa)\b",
-#         "phuong": r"\b(phường|phuong|p)\b",
-#         "tinh": r"\b(tỉnh|tinh)\b",
-#         "thanh_pho": r"\b(thành phố|thanh pho|tp|tphcm|tp hcm)\b",
-#     }
-
-#     replace_values = {
-#         "xa": "xã",
-#         "phuong": "phường",
-#         "tinh": "tỉnh",
-#         "thanh_pho": "thành phố"
-#     }
-
-#     pattern = replace_patterns[from_unit_type]
-#     replacement = replace_values[to_unit_type]
-
-#     rewritten = re.sub(pattern, replacement, query, count=1, flags=re.IGNORECASE)
-#     return keep_original_or_normalize_alias(rewritten)
-
 def rewrite_unit_type(query: str, from_unit_type: str, to_unit_type: str) -> str:
+    """
+    Đổi unit_type trong câu hỏi.
+    Chỉ dùng cho case không có địa danh explicit.
+    """
     if from_unit_type == to_unit_type:
-        return query
+        return keep_original_or_normalize_alias(query)
 
-    replace_map = {
+    replace_patterns = {
+        "xa": r"\b(xã|xa)\b",
+        "phuong": r"\b(phường|phuong|p)\b",
+        "tinh": r"\b(tỉnh|tinh)\b",
+        "thanh_pho": r"\b(thành phố|thanh pho|tp|tphcm|tp hcm)\b",
+    }
+
+    replace_values = {
         "xa": "xã",
         "phuong": "phường",
         "tinh": "tỉnh",
         "thanh_pho": "thành phố"
     }
 
-    pattern_map = {
-        "xa": r"\b(xã|xa)\b",
-        "phuong": r"\b(phường|phuong|p)\b",
-        "tinh": r"\b(tỉnh|tinh)\b",
-        "thanh_pho": r"\b(thành phố|thanh pho|tp)\b",
-    }
+    pattern = replace_patterns[from_unit_type]
+    replacement = replace_values[to_unit_type]
 
-    pattern = pattern_map[from_unit_type]
-    replacement = replace_map[to_unit_type]
+    rewritten = re.sub(pattern, replacement, query, count=1, flags=re.IGNORECASE)
+    return keep_original_or_normalize_alias(rewritten)
 
-    return re.sub(pattern, replacement, query, flags=re.IGNORECASE)
+# def rewrite_unit_type(query: str, from_unit_type: str, to_unit_type: str) -> str:
+#     if from_unit_type == to_unit_type:
+#         return query
+
+#     replace_map = {
+#         "xa": "xã",
+#         "phuong": "phường",
+#         "tinh": "tỉnh",
+#         "thanh_pho": "thành phố"
+#     }
+
+#     pattern_map = {
+#         "xa": r"\b(xã|xa)\b",
+#         "phuong": r"\b(phường|phuong|p)\b",
+#         "tinh": r"\b(tỉnh|tinh)\b",
+#         "thanh_pho": r"\b(thành phố|thanh pho|tp)\b",
+#     }
+
+#     pattern = pattern_map[from_unit_type]
+#     replacement = replace_map[to_unit_type]
+
+#     return re.sub(pattern, replacement, query, flags=re.IGNORECASE)
 
 
 def inject_default_unit_type_if_needed(query: str, actual_unit_type: str, scope: str) -> str:
@@ -452,6 +452,92 @@ def resolve_by_location(
     }
 
 
+# def resolve_by_scope_and_tenant(
+#     query: str,
+#     scope: str,
+#     mentions: List[Dict[str, Any]],
+#     tenant_ctx: Dict[str, Any]
+# ) -> Optional[Dict[str, Any]]:
+#     mention = pick_best_unit_type_mention(mentions, scope=scope)
+#     if not mention:
+#         return None
+
+#     if scope == "xa_phuong":
+#         current = tenant_ctx.get("current")
+#         if not current:
+#             return None
+
+#         actual = current["unit_type"]
+#         normalized_query = rewrite_unit_type(query, mention["unit_type"], actual)
+
+#         return {
+#             "original_query": query,
+#             "target_mode": "tenant_current",
+#             "target_tenant_id": current.get("id"),
+#             "target_tenant_name": current.get("name"),
+#             "target_tenant_level": "current",
+#             "target_unit_type": actual,
+#             "target_scope": "xa_phuong",
+#             "normalized_query": normalized_query,
+#             "rewrite_needed": normalized_query != query,
+#             "confidence": 0.95,
+#             "mapping_reason": "same_scope_xa_phuong_map_to_current_tenant",
+#             "matched_mention": mention
+#         }
+
+#     if scope == "tinh_thanh":
+#         parent = tenant_ctx.get("parent")
+#         if not parent:
+#             return None
+
+#         actual = parent["unit_type"]
+#         normalized_query = rewrite_unit_type(query, mention["unit_type"], actual)
+
+#         return {
+#             "original_query": query,
+#             "target_mode": "tenant_parent",
+#             "target_tenant_id": parent.get("id"),
+#             "target_tenant_name": parent.get("name"),
+#             "target_tenant_level": "parent",
+#             "target_unit_type": actual,
+#             "target_scope": "tinh_thanh",
+#             "normalized_query": normalized_query,
+#             "rewrite_needed": normalized_query != query,
+#             "confidence": 0.95,
+#             "mapping_reason": "same_scope_tinh_thanh_map_to_parent_tenant",
+#             "matched_mention": mention
+#         }
+
+#     return None
+
+
+def map_scope_unit_type(scope: str, tenant_ctx: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if scope == "xa_phuong":
+        current = tenant_ctx.get("current")
+        if not current:
+            return None
+        return {
+            "target_tenant_id": current.get("id"),
+            "target_tenant_name": current.get("name"),
+            "target_tenant_level": "current",
+            "target_unit_type": current.get("unit_type"),
+            "target_scope": "xa_phuong",
+        }
+
+    if scope == "tinh_thanh":
+        parent = tenant_ctx.get("parent")
+        if not parent:
+            return None
+        return {
+            "target_tenant_id": parent.get("id"),
+            "target_tenant_name": parent.get("name"),
+            "target_tenant_level": "parent",
+            "target_unit_type": parent.get("unit_type"),
+            "target_scope": "tinh_thanh",
+        }
+
+    return None
+
 def resolve_by_scope_and_tenant(
     query: str,
     scope: str,
@@ -462,54 +548,27 @@ def resolve_by_scope_and_tenant(
     if not mention:
         return None
 
-    if scope == "xa_phuong":
-        current = tenant_ctx.get("current")
-        if not current:
-            return None
+    mapped = map_scope_unit_type(scope, tenant_ctx)
+    if not mapped:
+        return None
 
-        actual = current["unit_type"]
-        normalized_query = rewrite_unit_type(query, mention["unit_type"], actual)
+    actual_unit_type = mapped["target_unit_type"]
+    normalized_query = rewrite_unit_type(query, mention["unit_type"], actual_unit_type)
 
-        return {
-            "original_query": query,
-            "target_mode": "tenant_current",
-            "target_tenant_id": current.get("id"),
-            "target_tenant_name": current.get("name"),
-            "target_tenant_level": "current",
-            "target_unit_type": actual,
-            "target_scope": "xa_phuong",
-            "normalized_query": normalized_query,
-            "rewrite_needed": normalized_query != query,
-            "confidence": 0.95,
-            "mapping_reason": "same_scope_xa_phuong_map_to_current_tenant",
-            "matched_mention": mention
-        }
-
-    if scope == "tinh_thanh":
-        parent = tenant_ctx.get("parent")
-        if not parent:
-            return None
-
-        actual = parent["unit_type"]
-        normalized_query = rewrite_unit_type(query, mention["unit_type"], actual)
-
-        return {
-            "original_query": query,
-            "target_mode": "tenant_parent",
-            "target_tenant_id": parent.get("id"),
-            "target_tenant_name": parent.get("name"),
-            "target_tenant_level": "parent",
-            "target_unit_type": actual,
-            "target_scope": "tinh_thanh",
-            "normalized_query": normalized_query,
-            "rewrite_needed": normalized_query != query,
-            "confidence": 0.95,
-            "mapping_reason": "same_scope_tinh_thanh_map_to_parent_tenant",
-            "matched_mention": mention
-        }
-
-    return None
-
+    return {
+        "original_query": query,
+        # "target_mode": f"tenant_{mapped['target_tenant_level']}",
+        # "target_tenant_id": mapped["target_tenant_id"],
+        # "target_tenant_name": mapped["target_tenant_name"],
+        # "target_tenant_level": mapped["target_tenant_level"],
+        # "target_unit_type": actual_unit_type,
+        # "target_scope": mapped["target_scope"],
+        "normalized_query": normalized_query,
+        # "rewrite_needed": normalized_query != query,
+        # "confidence": 0.95,
+        # "mapping_reason": f"same_scope_{mapped['target_scope']}_map_to_{mapped['target_tenant_level']}_tenant",
+        # "matched_mention": mention,
+    }
 
 def fallback_to_tenant_scope(
     query: str,

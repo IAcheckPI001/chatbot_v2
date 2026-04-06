@@ -7,6 +7,7 @@ import time
 import hashlib
 import random
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from datetime import datetime
@@ -43,6 +44,9 @@ patterns: List[Tuple[Pattern, str]] = []
 tenant_context_cache: Dict[str, dict] = {}
 tenant_code_by_id_cache: Dict[int, str] = {}
 tenant_codes_with_documents: Set[str] = set()
+tenant_context_last_loaded_at: float = 0.0
+TENANT_CONTEXT_CACHE_TTL = 5 * 60
+_tenant_context_lock = Lock()
 
 load_dotenv()
 
@@ -276,7 +280,7 @@ def normalize_tenant_id(value):
 
 
 def load_tenant_context_to_memory():
-    global tenant_context_cache, tenant_code_by_id_cache
+    global tenant_context_cache, tenant_code_by_id_cache, tenant_context_last_loaded_at
 
     res = (
         supabase.table("tenants")
@@ -332,6 +336,31 @@ def load_tenant_context_to_memory():
             "parent": parent_data
         }
 
+    tenant_context_last_loaded_at = time.time()
+
+
+def ensure_tenant_context_loaded(force: bool = False):
+    now = time.time()
+    cache_is_fresh = (
+        bool(tenant_context_cache)
+        and bool(tenant_code_by_id_cache)
+        and (now - tenant_context_last_loaded_at) <= TENANT_CONTEXT_CACHE_TTL
+    )
+    if not force and cache_is_fresh:
+        return
+
+    with _tenant_context_lock:
+        now = time.time()
+        cache_is_fresh = (
+            bool(tenant_context_cache)
+            and bool(tenant_code_by_id_cache)
+            and (now - tenant_context_last_loaded_at) <= TENANT_CONTEXT_CACHE_TTL
+        )
+        if not force and cache_is_fresh:
+            return
+
+        load_tenant_context_to_memory()
+
 
 def load_tenant_has_documents_to_memory():
     global tenant_codes_with_documents
@@ -351,14 +380,19 @@ def load_tenant_has_documents_to_memory():
 
 
 def refresh_tenant_cache():
-    load_tenant_context_to_memory()
+    ensure_tenant_context_loaded(force=True)
     load_tenant_has_documents_to_memory()
 
 
 def tenant_code_from_id(tenant_id: int = None):
     if tenant_id is None:
         return None
-    return tenant_code_by_id_cache.get(tenant_id)
+
+    norm_id = _to_int(tenant_id)
+    if norm_id is None:
+        return None
+
+    return tenant_code_by_id_cache.get(norm_id)
 
 
 def get_tenant_and_parent_from_memory(tenant_code: str, has_chunks_only: bool = False):
@@ -397,6 +431,8 @@ def ensure_tenant_code(tenant_id=None, tenant_code=None):
     norm_id = normalize_tenant_id(tenant_id)
     if not norm_id:
         return None, "tenant_id or tenant_code is required"
+
+    ensure_tenant_context_loaded()
 
     mapped_code = tenant_code_from_id(norm_id)
     if not mapped_code:
@@ -938,9 +974,11 @@ def v2_list_chunks():
         # Hỗ trợ cả tenant_id (từ hệ thống chính) và tenant_code (cũ)
         # Nếu không truyền tenant thì trả về all tenants (phục vụ màn hình quản trị tổng hợp).
         tenant_id = request.args.get("tenant_id")
+        logger.info(f"Tenant_id: {tenant_id}, tenant_code: {request.args.get('tenant_code')}")
         raw_tenant_code = request.args.get("tenant_code")
         tenant_code = None
         if (tenant_id and str(tenant_id).strip()) or (raw_tenant_code and str(raw_tenant_code).strip()):
+            ensure_tenant_context_loaded()
             tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
             if err:
                 return jsonify({"error": err}), 400
@@ -1912,6 +1950,43 @@ def get_tenants():
             "error": str(e)
         }), 500
 
+@app.route('/api/tenants', methods=['POST'])
+def sync_tenant():
+    try:
+        data = request.json or {}
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid JSON payload"}), 400
+
+        tenant_id = data.get("tenant_id")
+        tenant_code = data.get("tenant_code")
+
+        if tenant_id is None:
+            return jsonify({"error": "tenant_id is required"}), 400
+        if not tenant_code:
+            return jsonify({"error": "tenant_code is required"}), 400
+
+        tenant_code = str(tenant_code).strip()
+
+        # Check if exists
+        existing = supabase.table("tenants").select("id").eq("tenant_code", tenant_code).execute()
+        if existing.data:
+            return jsonify({"message": "Tenant already exists", "data": existing.data[0]}), 200
+
+        # Insert new tenant
+        payload = {
+            "id": int(tenant_id),
+            "tenant_code": tenant_code,
+            "scope": "xa_phuong",
+        }
+        res = supabase.table("tenants").insert(payload).execute()
+        
+        return jsonify({
+            "message": "Tenant synced successfully",
+            "data": res.data
+        }), 201
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/get-prompts', methods=['GET'])
 def get_prompts():
@@ -3217,6 +3292,7 @@ def chat_stream():
 
         top_score = chunks[0]["confidence_score"] if chunks else 0
         logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
+        logger.info(f"=> Chunks: {chunks}")
 
         if top_score < 0.2:
             for token in chunk_text(support_content):
@@ -3237,7 +3313,7 @@ def chat_stream():
             yield from flush_logs(force=True)
             yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
             return
-
+        
         # primary_chunks = chunks[:5]
         # context_parts = [
         #     f"### Tài liệu {i+1}\n{chunk['text_content']}"
