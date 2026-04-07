@@ -346,6 +346,159 @@ SUBJECTS = [
 #         print("LLM classify error:", e)
 #         return None, None
 
+def classify_subject_doan_the(query: str, organization_type: str):
+    prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã.
+
+NHIỆM VỤ
+Xác định subject của câu hỏi.
+
+SUBJECT (chỉ chọn 1):
+
+- gioi_thieu_chung
+- chuc_nang_nhiem_vu (chức năng, nhiệm vụ, quyền hạn, vai trò, phụ trách việc gì)
+- hoi_vien_doi_tuong_phuc_vu (ai được tham gia ai được hỗ trợ nghĩa vụ, quyền lợi, trách nhiệm của hội viên, đoàn viên)
+- hoat_dong_phong_trao (các hoạt động, phong trào, sự kiện thường niên, hoạt động nổi bật, chương trình đang triển khai)
+- chuong_trinh_ho_tro (các chương trình hỗ trợ, chính sách hỗ trợ, hình thức hỗ trợ)
+- thu_tuc_quy_trinh (đăng ký tham gia, kết nạp, gia nhập, chuyển sinh hoạt, cấp lại giấy tờ / hồ sơ / thẻ / sổ, điều kiện, cách thực hiện)
+- quy_dinh_huong_dan (hỏi về điều lệ, quy chế, quy định, văn bản hướng dẫn liên quan đến tổ chức/đoàn thể, đoàn phí / hội phí / kinh phí)
+- thong_tin_lien_he (địa chỉ, số điện thoại, email, trang web, fanpage của tổ chức/đoàn thể)
+
+Ví dụ:
+Câu hỏi: "Muốn tham gia đoàn thanh niên thì làm sao?"
+{{"subject": "thu_tuc_quy_trinh"}}
+
+Câu hỏi: "Đoàn phí là bao nhiêu?"
+{{"subject": "quy_dinh_huong_dan"}}
+---
+QUY TẮC:
+- Không giải thích
+- Không tạo giá trị mới
+- Trả về JSON
+
+FORMAT:
+{{
+    "subject": ""
+}}
+
+Câu hỏi:
+"{query}"
+    """
+    prompt = _render_prompt_template(prompt, prompt, query=query)
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content.strip()
+
+        data = json.loads(raw)
+
+        subject = data.get("subject")
+
+
+        if subject in ["gioi_thieu_chung", "chuc_nang_nhiem_vu", "hoi_vien_doi_tuong_phuc_vu", "hoat_dong_phong_trao", "chuong_trinh_ho_tro", "thu_tuc_quy_trinh", "quy_dinh_huong_dan", "thong_tin_lien_he"]:
+            print(subject)
+            return subject
+
+        # Nếu LLM trả sai → fallback None
+        return None
+
+    except Exception as e:
+        print("LLM classify error:", e)
+        return None
+
+def classify_category_doan_the(query: str, organization_type: str):
+    prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã.
+NGỮ CẢNH:
+- Câu hỏi này đang thuộc tổ chức: "{organization_type}"
+NHIỆM VỤ
+Xác định category cho câu hỏi.
+
+CATEGORY (chỉ chọn 1):
+1. to_chuc_bo_may
+Dùng khi câu hỏi hỏi về người cụ thể, chức danh cụ thể, ai là ai, ai giữ chức vụ gì, lãnh đạo, nhân sự, bộ phận / chi hội / chi đoàn
+
+2. thong_tin_tong_quan
+Dùng khi câu hỏi hỏi về, giới thiệu chung, chức năng nhiệm vụ, địa chỉ, điện thoại, email, giờ làm việc, hội viên / đối tượng phục vụ, hoạt động / phong trào, chương trình hỗ trợ, cách tham gia / đăng ký, văn bản hướng dẫn / quy định
+
+QUY TẮC:
+- Không giải thích
+- Không tạo giá trị mới
+- Trả về JSON
+
+FORMAT:
+{{
+    "category": ""
+}}
+
+Câu hỏi:
+"{query}"
+    """
+    prompt = _render_prompt_template(prompt, prompt, query=query)
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content.strip()
+
+        data = json.loads(raw)
+
+        category = data.get("category")
+
+
+        if category == "to_chuc_bo_may":
+            print(category)
+            return category
+
+        if category == "thong_tin_tong_quan":
+            print(category)
+            return category
+
+
+        # Nếu LLM trả sai → fallback None
+        return None
+
+    except Exception as e:
+        print("LLM classify error:", e)
+        return None
+
+def classify_organization_type(query: str):
+    prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã.
+NHIỆM VỤ
+Xác định tổ chức/đoàn thể mà câu hỏi đang đề cập đến hoặc đang thuộc về.
+TỔ CHỨC/ĐOÀN THỂ (chỉ chọn 1):
+1. doan_thanh_nien (Đoàn thanh niên)
+2. hoi_phu_nu (Hội phụ nữ)
+3. cong_doan (Công đoàn)
+4. mttq (Mặt trận Tổ quốc)
+5. unknown (dùng khi không xác định được tổ chức hoặc câu hỏi không liên quan đến tổ chức nào)
+
+QUY TẮC:
+- Không giải thích
+- Không tạo giá trị mới
+- Trả về JSON
+FORMAT:
+{{
+    "organization_type": ""
+}}
+Câu hỏi:
+"{query}"
+    """
+    prompt = _render_prompt_template(prompt, prompt, query=query)
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content.strip()
+
+        data = json.loads(raw)
+
+        organization_type = data.get("organization_type")
+
+        if organization_type in ["doan_thanh_nien", "hoi_phu_nu", "cong_doan", "mttq"]:
+            print(organization_type)
+            return organization_type
+
+        # Nếu LLM trả sai → fallback None
+        return None
+
+    except Exception as e:
+        print("LLM classify error:", e)
+        return None
+
 
 def classify_category(query: str, prompt_template: str = None):
     default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã.

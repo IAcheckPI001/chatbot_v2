@@ -27,6 +27,7 @@ from cache_backend import create_cache_backend
 from system import chunk_text
 from scope_detect import extract_scope
 from test_unit_type import resolve_unit_type
+from model import classify_category_doan_the, classify_subject_doan_the, classify_organization_type
 
 import logging
 
@@ -2286,6 +2287,7 @@ def create_chunk():
             return jsonify({"error": "tenant_code is required"}), 400
         elif not tenant_exists(tenant_code):
             return jsonify({"error": f"tenant_code '{tenant_code}' does not exist"}), 400
+            
 
         embedding = get_proc_embedding(data.get("text_content")) if data.get("text_content") else None
         if embedding is None:
@@ -2293,6 +2295,8 @@ def create_chunk():
 
         text_content = data.get("text_content") or ''
         category = data.get("category") or None
+        organization_type = data.get("organization_type")
+        organization_type = None if organization_type.trip() == "ubnd" else organization_type.strip()
         procedure_name = extract_procedure_name(text_content) if category == "thu_tuc_hanh_chinh" else None
 
         new_chunk = {
@@ -2303,6 +2307,7 @@ def create_chunk():
             "normalized_text": normalize_text(procedure_name or text_content),
             "category": category,
             "subject": data.get("subject") or None,
+            "procedure_action": data.get("organization_type"),
             "embedding": embedding
         }
 
@@ -3228,6 +3233,667 @@ def chat_stream():
         tenant_code = resolved_tenant_code
 
     
+
+        logger.info(f"=> Scope: {scope}, Resolved tenant code: {tenant_code}")
+        yield f"data: {json.dumps({'log': f'Scope: {scope}, Resolved tenant code: {tenant_code}'})}\n\n"
+
+        if category == "phan_anh_kien_nghi":
+            subject = classify_phan_anh_cached(user_message, tenant_code, prompt_template=classify_subject_phan_anh_prompt)
+            subject = normalize_subject_value(subject)
+            tenant_code = None
+            logger.info(f"=> Subject: {subject}")
+            yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
+
+
+            yield from emit_log("Thuộc phạm vi - phản ánh kiến nghị\n")
+
+        if category == "thong_tin_tong_quan":
+            subject = classify_tong_quan_cached(user_message, tenant_code, prompt_template=classify_subject_qa_prompt)
+            subject = normalize_subject_value(subject)
+            logger.info(f"=> Subject: {subject}")
+            yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
+            yield from emit_log("Đang tra cứu thông tin tổng quan\n")
+
+        
+
+        query_embedding = get_embedding_cached(user_message)
+
+        chunks = search_documents_full_hybrid_v6_cached(
+            normalized_query=normalized_query,
+            query_embedding=query_embedding,
+            category=category,
+            subject=subject,
+            p_limit=5,
+            tenant=tenant_code
+        )
+
+        if subject in ["chuc_vu", "nhan_su"]:
+            best_score = chunks[0]["confidence_score"] if chunks else 0
+            if best_score < 0.4:
+                chunks_all = search_documents_full_hybrid_v6_cached(
+                    normalized_query=normalized_query,
+                    query_embedding=query_embedding,
+                    category="to_chuc_bo_may",
+                    subject=None,
+                    p_limit=5,
+                    tenant=tenant_code
+                )
+
+                best_score_all = chunks_all[0]["confidence_score"] if chunks_all else 0
+
+                # Nếu không subject tốt hơn → dùng nó
+                if best_score_all > best_score:
+                    chunks = chunks_all
+        
+        # id_chunk = chunks[0]["id"] if chunks else None
+
+        if not chunks:
+            for token in chunk_text(support_content):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+
+        top_score = chunks[0]["confidence_score"] if chunks else 0
+        logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
+        logger.info(f"=> Chunks: {chunks}")
+
+        if top_score < 0.2:
+            for token in chunk_text(support_content):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["tenant_code"] = tenant_code
+            log_data["raw_query"] = origin_mess
+            log_data["expanded_query"] = user_message
+            log_data["answer"]= support_content
+            log_data["detected_category"]= category
+            log_data["detected_subject"]= subject
+            log_data["event_type"] = "low_confidence"
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+        
+        # primary_chunks = chunks[:5]
+        # context_parts = [
+        #     f"### Tài liệu {i+1}\n{chunk['text_content']}"
+        #     for i, chunk in enumerate(chunks)
+        # ] if chunks else []
+
+        # yield from emit_log("Đang tìm các tài liệu liên quan")
+
+        # related_chunks = get_related_chunks_cached(tenant_code, id_chunk)
+        # if related_chunks:
+        #     # Avoid duplicate documents when a related chunk already appears in top results.
+        #     existing_ids = {c.get("id") for c in primary_chunks}
+        #     unique_related = [c for c in related_chunks if c.get("id") not in existing_ids]
+
+        #     if unique_related:
+        #         start_idx = len(context_parts)
+        #         context_parts.extend(
+        #             f"### Tài liệu liên quan {start_idx + i + 1}\n{chunk['text_content']}"
+        #             for i, chunk in enumerate(unique_related[:3])
+        #         )
+
+        # context = "\n\n".join(context_parts)
+        context = "\n\n".join(
+            f"Tài liệu {i+1}:\n{chunk['text_content']}"
+            for i, chunk in enumerate(chunks)
+        )
+
+        yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
+
+        full_answer = ""
+        for token in llm_answer_stream(user_message, context, prompt_template=answer_qa_prompt):
+            full_answer += token
+            yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        answer = full_answer
+
+        end = time.perf_counter()
+        duration = (end - start_flow)
+        log_data["tenant_code"] = tenant_code
+        log_data["raw_query"] = origin_mess
+        log_data["expanded_query"] = user_message
+        log_data["answer"]= answer
+        log_data["detected_category"]= category
+        log_data["detected_subject"]= subject
+        log_data["event_type"] = "normal"
+        log_data["alias_score"]= chunks[0]["alias_score"] if chunks else 0
+        log_data["document_score"]= chunks[0]["document_score"] if chunks else 0
+        log_data["confidence_score"]= top_score
+        log_data["session_chat"]= session_id
+        log_data["response_time_ms"]= round(duration, 2)
+        enqueue_log(log_data)
+        yield from flush_logs(force=True)
+        yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+        return
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"  # cực quan trọng nếu có nginx
+        }
+    )   
+
+from to_chuc_doan_the_v5 import detect_organization_metadata_fast_v5
+
+@app.route('/api/chat-stream-v2', methods=['POST'])
+def chat_stream_v2():
+
+    def generate():
+
+        # ✅ LẤY DATA TRƯỚC
+        data = request.json or {}
+        session_id = data.get("session_id")
+        user_message = data.get('question', '').strip()
+        origin_mess = user_message
+        logger.info(f"Câu hỏi người dùng: {user_message}")
+
+        # Hỗ trợ cả tenant_id và tenant_code
+        tenant_id = data.get("tenant_id")
+        raw_tenant_code = data.get("tenant_code")
+        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        log_data = {}
+        logger.info(f"Tenant id: {tenant_id}")
+        logger.info(f"Tenant code: {tenant_code}")
+
+        help_content = get_default_answer("help")
+        out_of_score_content = get_default_answer("out_of_scope")
+        thanks_content = get_default_answer("thanks")
+        phan_nan_content = get_default_answer("complaint")
+        xuc_pham_content = get_default_answer("abuse")
+        banned_replies = get_default_answer("banned")
+        support_content = get_default_answer("support")
+
+        LOG_FLUSH_INTERVAL_SECONDS = 0.08
+        LOG_BUFFER_MAX = 64
+        pending_logs = []
+        last_log_flush_at = time.perf_counter()
+
+        def flush_logs(force=False):
+            nonlocal last_log_flush_at
+            if not pending_logs:
+                return
+
+            now = time.perf_counter()
+            if not force and (now - last_log_flush_at) < LOG_FLUSH_INTERVAL_SECONDS:
+                return
+
+            batch = "\n".join(pending_logs)
+            pending_logs.clear()
+            last_log_flush_at = now
+            yield f"data: {json.dumps({'thought': batch}, ensure_ascii=False)}\n\n"
+
+        def emit_log(message, force=False):
+            if message is None:
+                return
+
+            if len(pending_logs) >= LOG_BUFFER_MAX:
+                pending_logs.pop(0)
+            pending_logs.append(str(message))
+            yield from flush_logs(force=force)
+
+        if err:
+            message = err
+            for token in chunk_text(message):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+
+        if not tenant_exists(tenant_code):
+            message = "Tenant được chọn không tồn tại trong hệ thống."
+            for token in chunk_text(message):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+        
+        yield from emit_log(f"Đã nhận câu hỏi anh/chị: {origin_mess}")
+
+        try:
+            prompt_templates = get_active_prompt_templates_map_cached()
+        except Exception as e:
+            prompt_templates = {}
+            yield from emit_log(f"Không thể tải prompt templates: {str(e)}", force=True)
+
+        history_rewrite_prompt = pick_prompt_template(prompt_templates, "history_rewrite")
+        classify_category_prompt = pick_prompt_template(prompt_templates, "classify_category")
+        classify_subject_procedure_prompt = pick_prompt_template(prompt_templates, "classify_subject_procedure")
+        answer_procedure_prompt = pick_prompt_template(prompt_templates, "answer_procedure")
+        classify_subject_qa_prompt = pick_prompt_template(prompt_templates, "classify_subject_QA")
+        classify_subject_tuong_tac_prompt = pick_prompt_template(prompt_templates, "classify_subject_tuong_tac")
+        classify_subject_phan_anh_prompt = pick_prompt_template(prompt_templates, "classify_subject_phan_anh")
+        answer_qa_prompt = pick_prompt_template(prompt_templates, "answer_QA")
+
+        start_flow = time.perf_counter()
+
+        history_data = get_recent_session_history_cached(session_id, tenant_code, limit=2)
+        
+        result = resolver.process(user_message)
+        user_message = result["expanded"]
+        normalized_query = result["normalized"]
+
+        logger.info(f"Câu hỏi sau khi xử rule-base từ tắt: {user_message}")
+
+        yield from emit_log("Đang xử lý nội dung câu hỏi\n")
+        # matched_keyword = next(
+        #     (
+        #         kw for kw in BANNED_KEYWORDS
+        #         if kw.lower() in user_message.lower()
+        #         or normalize_text(kw) in normalized_query
+        #     ),
+        #     None
+        # )
+
+        matched_keyword = find_blocked_keyword(normalized_query)
+
+        if matched_keyword:
+            yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
+            banned_replies_stream = chunk_text(banned_replies)
+            for token in banned_replies_stream:
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["raw_query"] = user_message
+            log_data["expanded_query"] = normalized_query
+            log_data["event_type"] = "banned_topic"
+            log_data["answer"]= banned_replies
+            log_data["reason"]= f"Nội dung có chứa từ khóa cấm => {matched_keyword}"
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+        logger.info(f"Câu hỏi người dùng: {origin_mess}")
+        if not history_data:
+            logger.info(f"Chuẩn hóa không có lịch sử")
+            start = time.perf_counter()
+            user_message = rewrite_query(user_message, prompt_template=None)
+
+            normalized_query = normalize_text(user_message)
+            yield f"data: {json.dumps({'log': f'Câu hỏi sau khi viết lại (không có lịch sử): {user_message}'})}\n\n"
+
+        if history_data:
+            last_question = history_data[0]["expanded_query"]
+            logger.info(f"Câu hỏi trước: {last_question}")
+
+            user_message = rewrite_query_history(user_message, last_question, prompt_template=history_rewrite_prompt)
+            normalized_query = normalize_text(user_message)
+            yield f"data: {json.dumps({'log': f'Câu hỏi sau khi viết lại (Có lịch sử): {user_message}'})}\n\n"
+
+        yield from emit_log("Đang xác định thông tin cần tra cứu\n")
+        
+        logger.info(f"Normalized query: {user_message}")
+
+        metadata_rb = detect_organization_metadata_fast_v5(normalized_query)
+
+        rb_organization_type = metadata_rb.get("organization_type")
+        yield f"data: {json.dumps({'log': f'Organization Type (rule-base): {rb_organization_type}'})}\n\n"
+        if rb_organization_type is None:
+            start = time.perf_counter()
+            rb_organization_type = classify_organization_type(user_message)
+            end = time.perf_counter()
+            duration = (end - start)
+            yield f"data: {json.dumps({'log': f'[{duration:.2f} s]Organization Type (LLM extract): {rb_organization_type}'})}\n\n"
+
+        if rb_organization_type:
+            rb_category = metadata_rb.get("category")
+            rb_subject = metadata_rb.get("subject")
+            
+            category = rb_category
+            subject = rb_subject
+
+            yield f"data: {json.dumps({'log': f'Category (rule-base): {category}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'Subject (rule-base): {subject}'})}\n\n"
+
+            if category is None:
+                category = classify_category_doan_the(user_message, rb_organization_type)
+                yield f"data: {json.dumps({'log': f'Category (LLM extract): {category}'})}\n\n"
+            
+            if subject is None:
+                if category == "to_chuc_bo_may":
+                    subject = "chuc_vu"
+
+                if category == "thong_tin_tong_quan":
+                    subject = classify_subject_doan_the(user_message, rb_organization_type)
+                    yield f"data: {json.dumps({'log': f'Subject (LLM extract): {subject}'})}\n\n"
+            
+
+            yield f"data: {json.dumps({'log': f'p_query_format {normalized_query}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'p_query_embedding {user_message}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'p_tenant {tenant_code}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'p_organization_type {rb_organization_type}'})}\n\n"
+            yield f"data: {json.dumps({'log': f'p_category {category}, p_subject {subject}'})}\n\n"
+            response = supabase.rpc(
+                "search_documents_v2",
+                {
+                    "p_query_format": normalized_query,
+                    "p_query_embedding": get_embedding_cached(user_message),
+                    "p_tenant": tenant_code,
+                    "p_organization_type": rb_organization_type,
+                    "p_category": category,
+                    "p_subject": subject,
+                    "p_limit": 1 if subject == "thu_tuc_quy_trinh" else 5
+                }
+            ).execute()
+
+            chunks = response.data or []
+            yield f"data: {json.dumps({'log': f'Filter chunk xong {chunks}'})}\n\n"
+            if not chunks:
+                for token in chunk_text(support_content):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+            
+            top_score = chunks[0]["confidence_score"] if chunks else 0
+            alias_score = chunks[0]["alias_score"] if chunks else 0
+            document_score = chunks[0]["document_score"] if chunks else 0
+            
+            context = "\n\n".join(
+                f"Tài liệu {i+1}:\n{chunk['text_content']}"
+                for i, chunk in enumerate(chunks)
+            )
+
+            yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
+
+            full_answer = ""
+            for token in llm_answer_stream(user_message, context, prompt_template=answer_qa_prompt):
+                full_answer += token
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        
+            answer = full_answer
+
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["tenant_code"] = tenant_code
+            log_data["raw_query"] = origin_mess
+            log_data["expanded_query"] = user_message
+            log_data["answer"]= full_answer
+            log_data["detected_category"]= category
+            log_data["detected_subject"]= subject
+            log_data["event_type"] = "normal"
+            log_data["alias_score"]= alias_score
+            log_data["document_score"]= document_score
+            log_data["confidence_score"]= top_score
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+
+            return
+            
+        res = classify_v2_cached(normalized_query, PREPARED, tenant_code)
+        category, subject = res["category"], res["subject"]
+
+        if res["need_llm"]:
+            category_llm = classify_llm_cached(user_message, prompt_template=classify_category_prompt)
+            category = normalize_llm_label(category_llm)
+        
+        logger.info(f"Category được xác định: {category}")
+        yield f"data: {json.dumps({'log': f'Category được xác định: {category}'})}\n\n"
+
+        if category == "chu_de_cam":
+            banned_replies_stream = chunk_text(banned_replies)
+            for token in banned_replies_stream:
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["raw_query"] = user_message
+            log_data["expanded_query"] = normalized_query
+            log_data["detected_category"] = category
+            log_data["event_type"] = "banned_topic"
+            log_data["answer"]= banned_replies
+            log_data["reason"]= "LLm xác định nội dung thuộc chủ đề cấm"
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+            
+        if category == "thu_tuc_hanh_chinh":
+            yield from emit_log("=> Xác định nội dung thuộc thủ tục hành chính\n", force=True)
+            meta = classify_llm_procedure_cached(user_message, prompt_template=classify_subject_procedure_prompt)
+
+            if not meta or not isinstance(meta, dict):
+                message = "Không thể xác định thủ tục hành chính từ câu hỏi. Anh/chị vui lòng đặt câu hỏi rõ ràng hơn hoặc liên hệ trực tiếp để được hỗ trợ."
+                for token in chunk_text(message):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+
+            query_mode = meta.get("query_mode")
+
+            procedures = meta.get("unit") or []
+            if not procedures:
+                message = "Không thể xác định thủ tục hành chính từ câu hỏi. Anh/chị vui lòng đặt câu hỏi rõ ràng hơn hoặc liên hệ trực tiếp để được hỗ trợ."
+                for token in chunk_text(message):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+            
+            logger.info(f"=> Phân tích thủ tục : {meta}")
+
+            procedure_name = procedures[0].get("procedure")
+            if not procedure_name:
+                message = "Dạ anh/chị, hệ thống khác xác định được rõ tên thủ tục, anh/chị đang hỏi cụ thể về thủ tục nào ạ?"
+                for token in chunk_text(message):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+
+            chunk_response = []
+
+            if query_mode == "single_procedure":
+                procedure_name = procedures[0].get("procedure")
+                procedure_action = procedures[0].get("procedure_action")
+                special_contexts = procedures[0].get("special_contexts") or []
+
+
+                yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}\n")
+                yield from emit_log("Đang chọn lọc các tài liệu liên quan\n")
+                yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
+                response = supabase.rpc(
+                    "search_documents_full_hybrid_thu_tuc_v1",
+                    {
+                        "p_query_format": normalize_text(procedure_name),
+                        "p_query_embedding": get_embedding_cached(procedure_name),
+                        "p_tenant": None,
+                        "p_category": category,
+                        "p_subject": procedures[0]['subject'],
+                        "p_procedure": normalize_text(procedure_name),
+                        "p_procedure_action": procedure_action,
+                        "p_special_contexts": special_contexts,
+                        "p_limit": 3
+                    }
+                ).execute()
+                chunks = response.data or []
+            else:
+                chunk_response = []
+                for proc in procedures:
+                    procedure_name = proc['procedure']
+                    procedure_action = proc['procedure_action']
+                    special_contexts = proc['special_contexts']
+                    yield from emit_log(f"=> Đã xác định tên thủ tục: {procedure_name}\n")
+                    yield from emit_log("Đang chọn lọc các tài liệu liên quan\n")
+                    yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}'})}\n\n"
+                    response = supabase.rpc(
+                        "search_documents_full_hybrid_thu_tuc_v1",
+                        {
+                            "p_query_format": normalize_text(procedure_name),
+                            "p_query_embedding": get_embedding_cached(procedure_name),
+                            "p_tenant": None,
+                            "p_category": category,
+                            "p_subject": proc['subject'],
+                            "p_procedure": normalize_text(procedure_name),
+                            "p_procedure_action": procedure_action,
+                            "p_special_contexts": special_contexts,
+                            "p_limit": 1
+                        }
+                    ).execute()
+
+                    chunks = response.data or []
+                    if chunks:
+                        chunk_response.append(chunks[0])
+                chunks = chunk_response
+            if not chunks:
+                for token in chunk_text(support_content):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+            top_score = chunks[0]["confidence_score"] if chunks else 0
+            logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
+
+            if top_score < 0.2:
+                for token in chunk_text(support_content):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+                end = time.perf_counter()
+                duration = (end - start_flow) * 1000 
+                log_data["tenant_code"] = tenant_code
+                log_data["raw_query"] = origin_mess
+                log_data["expanded_query"] = user_message
+                log_data["answer"]= support_content
+                log_data["detected_category"]= category
+                log_data["detected_subject"]= subject
+                log_data["event_type"] = "low_confidence"
+                log_data["alias_score"]= top_chunk.get("alias_score", 0)
+                log_data["document_score"]= top_score
+                log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
+                log_data["session_chat"]= session_id
+                log_data["response_time_ms"]= round(duration / 1000,2)
+                enqueue_log(log_data)
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+
+            context = "\n\n".join(
+                f"Tài liệu {i+1}:\n{chunk['text_content']}"
+                for i, chunk in enumerate(chunks)
+            )
+
+            yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
+
+            full_answer = ""
+            for token in llm_answer_procedure_stream(user_message, context, prompt_template=answer_procedure_prompt):
+                full_answer += token
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        
+            answer = full_answer
+
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["tenant_code"] = tenant_code
+            log_data["raw_query"] = origin_mess
+            log_data["expanded_query"] = user_message
+            log_data["answer"]= full_answer
+            log_data["detected_category"]= category
+            log_data["detected_subject"]= subject
+            log_data["event_type"] = "normal"
+            top_chunk = chunks[0] if chunks else {}
+            log_data["alias_score"]= top_chunk.get("alias_score", 0)
+            log_data["document_score"]= top_score
+            log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+
+            return
+
+        if category == "tuong_tac":
+            subject = classify_tuong_tac_cached(user_message, tenant_code, prompt_template=classify_subject_tuong_tac_prompt)
+            subject = normalize_subject_value(subject)
+            if subject is None:
+                subject = "chao_hoi"
+            
+            yield f"data: {json.dumps({'log': f'Subject: {subject}'})}\n\n"
+            logger.info(f"=> Subject: {subject}")
+            
+            yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
+
+            if subject == "chao_hoi":
+                answer_stream = chunk_text(help_content)
+                answer = help_content
+                event_type = "normal"
+            if subject == "cam_on_tam_biet":
+                answer_stream = chunk_text(thanks_content)
+                answer = thanks_content
+                event_type = "normal"
+            if subject == "phan_nan_buc_xuc":
+                answer_stream = chunk_text(phan_nan_content)
+                answer = phan_nan_content
+                event_type = "complaint"
+            if subject == "xuc_pham_vi_pham":
+                answer_stream = chunk_text(xuc_pham_content)
+                answer = xuc_pham_content
+                event_type = "banned_topic"
+            if subject == "chu_de_cam":
+                answer_stream = chunk_text(banned_replies)
+                answer = banned_replies
+                event_type = "banned_topic"
+
+            for token in answer_stream:
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["tenant_code"] = tenant_code
+            log_data["raw_query"] = origin_mess
+            log_data["expanded_query"] = user_message
+            log_data["answer"]= answer
+            log_data["event_type"] = event_type
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+        
+        scope = extract_scope(user_message)
+        
+        start = time.perf_counter()
+
+        tenant_ctx = get_resolved_tenant_from_memory(tenant_code)
+
+        logger.info(f"=> {tenant_ctx}")
+
+        result = resolve_unit_type(
+            query=user_message,
+            scope=scope,
+            tenant_ctx=tenant_ctx
+        )
+
+        end_time = time.perf_counter()
+        duration = (end_time - start) * 1000
+        yield f"data: {json.dumps({'log': f'Thời gian xử lý unit type: {duration / 1000:.2f} s'})}\n\n"
+
+        user_message = result["normalized_query"]
+        yield f"data: {json.dumps({'log': f'Câu hỏi đã xử lý unit type: {user_message}'})}\n\n"
+            
+        resolved_tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
+        if resolved_tenant_code is None and scope == "xa_phuong":
+            resolved_tenant_code = tenant_code
+        tenant_code = resolved_tenant_code
 
         logger.info(f"=> Scope: {scope}, Resolved tenant code: {tenant_code}")
         yield f"data: {json.dumps({'log': f'Scope: {scope}, Resolved tenant code: {tenant_code}'})}\n\n"
