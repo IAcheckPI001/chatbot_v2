@@ -332,33 +332,116 @@ def rewrite_unit_type(query: str, from_unit_type: str, to_unit_type: str) -> str
 #     return re.sub(pattern, replacement, query, flags=re.IGNORECASE)
 
 
+# def inject_default_unit_type_if_needed(query: str, actual_unit_type: str, scope: str) -> str:
+#     """
+#     Với câu không có unit_type rõ, có thể inject nhẹ nếu câu rất mơ hồ.
+#     Ví dụ:
+#     - 'bí thư là ai' -> 'bí thư xã là ai'
+#     - 'chủ tịch là ai' -> 'chủ tịch thành phố là ai'
+#     """
+#     q = query.strip()
+#     q_norm = normalize_text(q)
+
+#     vague_titles = ["bí thư", "chủ tịch", "phó chủ tịch", "ubnd", "ủy ban nhân dân"]
+
+#     if any(vt in q_norm for vt in vague_titles):
+#         unit_label = {
+#             "xa": "xã",
+#             "phuong": "phường",
+#             "tinh": "tỉnh",
+#             "thanh_pho": "thành phố"
+#         }[actual_unit_type]
+
+#         # inject sau title đầu tiên nếu chưa có unit_type
+#         if not re.search(r"\b(xã|xa|phường|phuong|tỉnh|tinh|thành phố|thanh pho|tp)\b", q_norm, flags=re.IGNORECASE):
+#             if " là ai" in q_norm:
+#                 idx = q_norm.find(" là ai")
+#                 original_idx = len(q[:idx])
+#                 return q[:original_idx] + f" {unit_label}" + q[original_idx:]
+#             return f"{q} ({unit_label})"
+
+#     return q
+
 def inject_default_unit_type_if_needed(query: str, actual_unit_type: str, scope: str) -> str:
     """
-    Với câu không có unit_type rõ, có thể inject nhẹ nếu câu rất mơ hồ.
-    Ví dụ:
-    - 'bí thư là ai' -> 'bí thư xã là ai'
-    - 'chủ tịch là ai' -> 'chủ tịch thành phố là ai'
+    Chỉ inject unit_type cho các câu hỏi mơ hồ về chức danh/cơ quan địa phương.
+    Không inject cho chức danh cấp trung ương/quốc gia như:
+    - chủ tịch nước
+    - chủ tịch quốc hội
+    - thủ tướng
+    - bộ trưởng
+    - tổng bí thư
     """
     q = query.strip()
     q_norm = normalize_text(q)
+    q_canon = canonicalize_text(q)
 
-    vague_titles = ["bí thư", "chủ tịch", "phó chủ tịch", "ubnd", "ủy ban nhân dân"]
+    unit_label = {
+        "xa": "xã",
+        "phuong": "phường",
+        "tinh": "tỉnh",
+        "thanh_pho": "thành phố"
+    }[actual_unit_type]
 
-    if any(vt in q_norm for vt in vague_titles):
-        unit_label = {
-            "xa": "xã",
-            "phuong": "phường",
-            "tinh": "tỉnh",
-            "thanh_pho": "thành phố"
-        }[actual_unit_type]
+    # 1) Nếu đã có unit_type rõ rồi thì không inject nữa
+    if re.search(r"\b(xã|xa|phường|phuong|tỉnh|tinh|thành phố|thanh pho|tp|tphcm|tp hcm)\b", q_norm, flags=re.IGNORECASE):
+        return q
 
-        # inject sau title đầu tiên nếu chưa có unit_type
-        if not re.search(r"\b(xã|xa|phường|phuong|tỉnh|tinh|thành phố|thanh pho|tp)\b", q_norm, flags=re.IGNORECASE):
-            if " là ai" in q_norm:
-                idx = q_norm.find(" là ai")
-                original_idx = len(q[:idx])
-                return q[:original_idx] + f" {unit_label}" + q[original_idx:]
-            return f"{q} ({unit_label})"
+    # 2) Chặn các chức danh/cơ quan cấp trung ương hoặc ngoài phạm vi địa phương
+    NATIONAL_TITLE_PATTERNS = [
+        r"\bch[uủ]\s*t[iị]ch\s*n[uướ]c\b",
+        r"\bph[oó]\s*ch[uủ]\s*t[iị]ch\s*n[uướ]c\b",
+        r"\bch[uủ]\s*t[iị]ch\s*qu[oố]c\s*h[oộ]i\b",
+        r"\bph[oó]\s*ch[uủ]\s*t[iị]ch\s*qu[oố]c\s*h[oộ]i\b",
+        r"\bth[uủ]\s*t[uướ]ng\b",
+        r"\bph[oó]\s*th[uủ]\s*t[uướ]ng\b",
+        r"\bb[oộ]\s*tr[uưở]ng\b",
+        r"\bth[uứ]\s*tr[uưở]ng\b",
+        r"\bt[oổ]ng\s*b[ií]\s*th[uư]\b",
+        r"\bch[aá]nh\s*[aá]n\s*t[oò]a\s*[aá]n\b",
+        r"\bvi[eệ]n\s*tr[uưở]ng\s*vi[eệ]n\s*ki[eể]m\s*s[aá]t\b",
+        r"\bqu[oố]c\s*h[oộ]i\b",
+        r"\bch[ií]nh\s*ph[uủ]\b",
+        r"\bb[oộ]\s+[a-z0-9\s]+\b",
+    ]
+
+    for pat in NATIONAL_TITLE_PATTERNS:
+        if re.search(pat, q_canon, flags=re.IGNORECASE):
+            return q
+
+    # 3) Chỉ inject cho các pattern mơ hồ nhưng có khả năng rất cao là hỏi cấp địa phương
+    LOCAL_AMBIGUOUS_PATTERNS = [
+        r"^\s*b[ií]\s*th[uư]\s+l[aà]\s*ai\s*\??\s*$",
+        r"^\s*ph[oó]\s*b[ií]\s*th[uư]\s+l[aà]\s*ai\s*\??\s*$",
+        r"^\s*ch[uủ]\s*t[iị]ch\s+l[aà]\s*ai\s*\??\s*$",
+        r"^\s*ph[oó]\s*ch[uủ]\s*t[iị]ch\s+l[aà]\s*ai\s*\??\s*$",
+        r"^\s*ch[uủ]\s*t[iị]ch\s*ubnd\s+l[aà]\s*ai\s*\??\s*$",
+        r"^\s*ph[oó]\s*ch[uủ]\s*t[iị]ch\s*ubnd\s+l[aà]\s*ai\s*\??\s*$",
+        r"^\s*[uủ]y\s*ban\s*nh[aâ]n\s*d[aâ]n\s+[oở]\s*[dđ][aâ]u\s*\??\s*$",
+        r"^\s*ubnd\s+[oở]\s*[dđ][aâ]u\s*\??\s*$",
+        r"^\s*[uủ]y\s*ban\s*nh[aâ]n\s*d[aâ]n\s*l[aà]\s*g[iì]\s*\??\s*$",
+        r"^\s*ubnd\s*l[aà]\s*g[iì]\s*\??\s*$",
+    ]
+
+    matched_local_ambiguous = any(
+        re.search(pat, q_canon, flags=re.IGNORECASE)
+        for pat in LOCAL_AMBIGUOUS_PATTERNS
+    )
+
+    if not matched_local_ambiguous:
+        return q
+
+    # 4) Inject đúng vị trí, ưu tiên trước "là ai", "ở đâu", "là gì"
+    tail_patterns = [
+        r"\s+là ai\b",
+        r"\s+ở đâu\b",
+        r"\s+là gì\b",
+    ]
+
+    for tail_pat in tail_patterns:
+        m = re.search(tail_pat, q, flags=re.IGNORECASE)
+        if m:
+            return q[:m.start()] + f" {unit_label}" + q[m.start():]
 
     return q
 
