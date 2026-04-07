@@ -2295,8 +2295,10 @@ def create_chunk():
 
         text_content = data.get("text_content") or ''
         category = data.get("category") or None
-        organization_type = data.get("organization_type")
-        organization_type = None if organization_type.trip() == "ubnd" else organization_type.strip()
+        procedure_action = data.get("procedure_action")
+        print(procedure_action)
+        if procedure_action == "ubnd":
+            procedure_action = None
         procedure_name = extract_procedure_name(text_content) if category == "thu_tuc_hanh_chinh" else None
 
         new_chunk = {
@@ -2307,7 +2309,7 @@ def create_chunk():
             "normalized_text": normalize_text(procedure_name or text_content),
             "category": category,
             "subject": data.get("subject") or None,
-            "procedure_action": data.get("organization_type"),
+            "procedure_action": procedure_action,
             "embedding": embedding
         }
 

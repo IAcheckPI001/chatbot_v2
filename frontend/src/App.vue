@@ -4,7 +4,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
 const API_BASE_URL = '/api'
-//const API_BASE_URL = 'http://localhost:5000/api'
+// const API_BASE_URL = 'http://localhost:5000/api'
 // const API_URL = import.meta.env.VITE_API_URL
 // const API_BASE_URL = `${API_URL}/api`
 const chunkLimit = ref(1)
@@ -223,7 +223,7 @@ const newChunk = ref({
   procedure_name: null,
   category: null,
   subject: null,
-  organization_unit: null
+  procedure_action: null
 })
 
 const newPrompt = ref({
@@ -807,6 +807,7 @@ const promptsData = ref<Array<any>>([])
 const tenantsData = ref<Array<any>>([])
 const categoryFilter = ref<string>('')
 const subjectFilter = ref<string>('')
+const procedureActionFilter = ref<string>('')
 const typeLogFilter = ref<string>('')
 const editingId = ref<string | null>(null)
 const editingData = ref<any>(null)
@@ -892,6 +893,7 @@ const filteredChunks = computed(() => {
       normalizeTenantCode(item.tenant_code) === selectedChunkTenant
     const categoryMatch = !categoryFilter.value || item.category === categoryFilter.value
     const subjectMatch = !subjectFilter.value || item.subject === subjectFilter.value
+    const procedureActionMatch = !procedureActionFilter.value || item.procedure_action === procedureActionFilter.value
     
     const keywordMatch =
       !searchKeyword.value ||
@@ -899,7 +901,7 @@ const filteredChunks = computed(() => {
         ?.toLowerCase()
         .includes(searchKeyword.value.toLowerCase())
 
-    return chunkIdMatch && tenantMatch && categoryMatch && subjectMatch && keywordMatch
+    return chunkIdMatch && tenantMatch && categoryMatch && subjectMatch && procedureActionMatch && keywordMatch
   })
 })
 
@@ -1694,7 +1696,7 @@ async function submitCreateChunk() {
     const payload = {
       ...newChunk.value,
       tenant_code: newChunk.value.scope === 'quoc_gia' ? null : finalTenantCode,
-      organization_unit: newChunk.value.organization_unit,
+      procedure_action: newChunk.value.procedure_action,
     }
 
     const response = await fetch(`${API_BASE_URL}/create-chunk`, {
@@ -1729,7 +1731,7 @@ function closeCreateModalChunk() {
     procedure_name: null,
     category: null,
     subject: null,
-    organization_unit: null
+    procedure_action: null
   }
 }
 
@@ -2425,8 +2427,24 @@ onMounted(() => {
           </select>
         </div>
         <div class="filter-group">
+          <label>Organization:</label>
+          <select v-model="procedureActionFilter" class="filter-select">
+            <option value="">Tất cả</option>
+            <option value="">Uỷ ban nhân dân</option>
+            <option value="doan_thanh_nien">Đoàn thanh niên</option>
+            <option value="hoi_phu_nu">Hội phụ nữ</option>
+            <option value="mttq">Mặt trận Tổ quốc</option>
+            <option value="cong_doan">Công đoàn</option>
+          </select>
+        </div>
+        <div class="filter-group">
           <label>Category:</label>
-          <select v-model="categoryFilter" class="filter-select">
+          <select v-if="procedureActionFilter" v-model="categoryFilter" class="filter-select">
+            <option value="">Tất cả</option>
+            <option value="thong_tin_tong_quan">Thông tin tổng quan</option>
+            <option value="to_chuc_bo_may">Tổ chức bộ máy</option>
+          </select>
+          <select v-else v-model="categoryFilter" class="filter-select">
             <option value="">Tất cả</option>
             <option value="thong_tin_tong_quan">Thông tin tổng quan</option>
             <option value="to_chuc_bo_may">Tổ chức bộ máy</option>
@@ -2458,7 +2476,18 @@ onMounted(() => {
             <option value="cong_thuong">Công thương</option>
             <option value="tai_chinh_thue_phi">Tài chính thuế phí</option>
           </select>
-          <select v-if="categoryFilter == 'thong_tin_tong_quan'" v-model="subjectFilter" class="filter-select">
+          <select v-if="categoryFilter == 'thong_tin_tong_quan' && procedureActionFilter" v-model="subjectFilter" class="filter-select">
+            <option value="">Tất cả</option>
+            <option value="gioi_thieu_chung">Giới thiệu chung</option>
+            <option value="chuc_nang_nhiem_vu">Chức năng nhiệm vụ</option>
+            <option value="hoi_vien_doi_tuong_phuc_vu">Hội viên đối tượng phục vụ</option>
+            <option value="hoat_dong_phong_trao">Hoạt động phong trào</option>
+            <option value="chuong_trinh_ho_tro">Chương trình hỗ trợ</option>
+            <option value="thu_tuc_quy_trinh">Thủ tục quy trình</option>
+            <option value="quy_dinh_huong_dan">Quy định hướng dẫn</option>
+            <option value="thong_tin_lien_he">Thông tin liên hệ</option> 
+          </select>
+           <select v-if="categoryFilter == 'thong_tin_tong_quan' && !procedureActionFilter" v-model="subjectFilter" class="filter-select">
             <option value="">Tất cả</option>
             <option value="gioi_thieu_dia_phuong">Giới thiệu địa phương</option>
             <option value="lich_su_hanh_chinh">Lịch sử hành chính</option>
@@ -2468,14 +2497,6 @@ onMounted(() => {
             <option value="giao_thong">Giao thông</option>
             <option value="lich_lam_viec">Lịch làm việc</option>
             <option value="thong_tin_lien_he">Thông tin liên hệ</option> 
-
-            <option value="gioi_thieu_chung">Giới thiệu chung</option>
-            <option value="chuc_nang_nhiem_vu">Chức năng nhiệm vụ</option>
-            <option value="hoi_vien_doi_tuong_phuc_vu">Hội viên đối tượng phục vụ</option>
-            <option value="hoat_dong_phong_trao">Hoạt động phong trào</option>
-            <option value="chuong_trinh_ho_tro">Chương trình hỗ trợ</option>
-            <option value="thu_tuc_quy_trinh">Thủ tục quy trình</option>
-            <option value="quy_dinh_huong_dan">Quy định hướng dẫn</option>
           </select>
           <select v-if="categoryFilter == 'to_chuc_bo_may'" v-model="subjectFilter" class="filter-select">
             <option value="">Tất cả</option>
@@ -2492,7 +2513,7 @@ onMounted(() => {
             <option value="khieu_nai_to_cao">Khiếu nại tố cáo</option>
           </select>
         </div>
-        <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''; exactChunkIdFilter = ''">Xóa bộ lọc</button>
+        <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''; procedureActionFilter = ''; exactChunkIdFilter = ''">Xóa bộ lọc</button>
       </div>
       <div v-if="exactChunkIdFilter" class="filter-result" style="background: #eef6ff; color: #1d4ed8;">
         Đang lọc theo chunk ID: {{ exactChunkIdFilter }}
@@ -2905,7 +2926,7 @@ onMounted(() => {
         <div class="filter-section">
           <div class="filter-group">
             <label>Tổ chức:</label>
-            <select v-model="newChunk.organization_unit" class="filter-select">
+            <select v-model="newChunk.procedure_action" class="filter-select">
               <option value="ubnd">UBND</option>
               <option value="doan_thanh_nien">Đoàn thanh niên</option>
               <option value="hoi_phu_nu">Hội phụ nữ</option>
@@ -2915,7 +2936,7 @@ onMounted(() => {
           </div>
           <div class="filter-group">
             <label>Category:</label>
-            <select v-if="newChunk.organization_unit == 'ubnd'" v-model="newChunk.category" class="filter-select">
+            <select v-if="newChunk.procedure_action == 'ubnd'" v-model="newChunk.category" class="filter-select">
               <option value="thong_tin_tong_quan">Thông tin tổng quan</option>
               <option value="to_chuc_bo_may">Tổ chức bộ máy</option>
               <option value="thu_tuc_hanh_chinh">Thủ tục hành chính</option>
@@ -2926,7 +2947,7 @@ onMounted(() => {
               <option value="to_chuc_bo_may">Tổ chức bộ máy</option>
             </select>
           </div>
-          <div v-if="newChunk.organization_unit == 'ubnd'" class="filter-group">
+          <div v-if="newChunk.procedure_action == 'ubnd'" class="filter-group">
             <label>Subject:</label>
             <select v-if="newChunk.category == 'thu_tuc_hanh_chinh'" v-model="newChunk.subject" class="filter-select">
               <option value="">-</option>
