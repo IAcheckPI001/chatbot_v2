@@ -31,11 +31,11 @@ llm = ChatOpenAI(
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
 
-llm_rewrite = ChatOpenAI(
-    model_name="gpt-4.1-mini",
-    temperature=0.0,
-    openai_api_key=os.getenv("OPENAI_API_KEY")
-)
+# llm_rewrite = ChatOpenAI(
+#     model_name="gpt-4.1-mini",
+#     temperature=0.0,
+#     openai_api_key=os.getenv("OPENAI_API_KEY")
+# )
 
 llm_generate = ChatOpenAI(
     model_name="gpt-4o-mini",
@@ -385,10 +385,16 @@ Câu hỏi:
     """
     prompt = _render_prompt_template(prompt, prompt, query=query)
     try:
-        response = llm.invoke(prompt)
-        raw = response.content.strip()
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=prompt,
+            temperature=0.0,
+            response_format={"type": "json_object"},  # 🔥 ép JSON
+        )
 
-        data = json.loads(raw)
+        content = response.choices[0].message.content
+
+        data = json.loads(content)
 
         subject = data.get("subject")
 
@@ -481,10 +487,16 @@ Câu hỏi:
     """
     prompt = _render_prompt_template(prompt, prompt, query=query)
     try:
-        response = llm.invoke(prompt)
-        raw = response.content.strip()
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=prompt,
+            temperature=0.0,
+            response_format={"type": "json_object"},  # 🔥 ép JSON
+        )
 
-        data = json.loads(raw)
+        content = response.choices[0].message.content
+
+        data = json.loads(content)
 
         organization_type = data.get("organization_type")
 
@@ -1210,10 +1222,16 @@ Chỉ trả về đúng 1 câu hỏi cuối cùng, không giải thích.
         default_prompt,
         query=query,
     )
+
     try:
-        response = llm_rewrite.invoke(prompt)
-        return response.content.strip()
-    except:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+        rewritten_query = response.choices[0].message.content.strip()
+        return rewritten_query if rewritten_query else query
+    except Exception:
         return query
 
 def rewrite_query_history(query: str, last_question: str, prompt_template: str = None) -> str:
@@ -1372,9 +1390,14 @@ Kết quả: ok vậy thôi
         last_question=last_question,
     )
     try:
-        response = llm_rewrite.invoke(prompt)
-        return response.content.strip()
-    except:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+        rewritten_query = response.choices[0].message.content.strip()
+        return rewritten_query if rewritten_query else query
+    except Exception:
         return query
 
 # def rewrite_query_history(query: str, last_question: str, prompt_template: str = None) -> str:
@@ -1561,11 +1584,15 @@ Quy tắc xét duyệt hồ sơ (BẮT BUỘC TUÂN THỦ STRICTLY):
         context=context,
     )
     try:
-        response = llm_generate.invoke(prompt)
-        print("LLM response:", response.content)
-        return response.content.strip()
-    except:
-        return question
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+        answer = response.choices[0].message.content.strip()
+        return answer if answer else "Dạ hiện tại hệ thống đang bổ sung thêm thông tin, để hỗ trợ anh/chị tốt hơn ạ. Anh/chị còn câu hỏi nào thắc mắc không ạ?"
+    except Exception:
+        return "Dạ hiện tại hệ thống đang bổ sung thêm thông tin, để hỗ trợ anh/chị tốt hơn ạ. Anh/chị còn câu hỏi nào thắc mắc không ạ?"
 
 
 def llm_answer_procedure_stream(question: str, context: str, prompt_template: str = None):
@@ -1669,11 +1696,16 @@ Yêu cầu trình bày:
         context=context,
     )
     try:
-        response = llm_generate.invoke(prompt)
-        print("LLM response:", response.content)
-        return response.content.strip()
-    except:
-        return question
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+        answer = response.choices[0].message.content.strip()
+        return answer if answer else "Dạ hiện tại hệ thống đang bổ sung thêm thông tin, để hỗ trợ anh/chị tốt hơn ạ. Anh/chị còn câu hỏi nào thắc mắc không ạ?"
+    except Exception:
+        return "Dạ hiện tại hệ thống đang bổ sung thêm thông tin, để hỗ trợ anh/chị tốt hơn ạ. Anh/chị còn câu hỏi nào thắc mắc không ạ?"
+
 
 
 def llm_answer_stream(question: str, context: str, prompt_template: str = None) -> str:

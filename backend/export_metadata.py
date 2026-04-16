@@ -2,24 +2,23 @@
 import os
 import json
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from openai import OpenAI
 from corn import supabase
 from embedding import get_embedding
 from utils import normalize_text, prepare_subject_keywords, SUBJECT_KEYWORDS
-from test_demo import classify_v2
 
 load_dotenv()
 
 PREPARED = prepare_subject_keywords(SUBJECT_KEYWORDS)
-
-llm = ChatOpenAI(
-    model_name="gpt-4.1-mini",
-    temperature=0.0,
-    model_kwargs={
-        "response_format": {"type": "json_object"}
-    },
-    openai_api_key=os.getenv("OPENAI_API_KEY")
-)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# llm = ChatOpenAI(
+#     model_name="gpt-4.1-mini",
+#     temperature=0.0,
+#     model_kwargs={
+#         "response_format": {"type": "json_object"}
+#     },
+#     openai_api_key=os.getenv("OPENAI_API_KEY")
+# )
 
 
 def _render_prompt_template(template: str, fallback_prompt: str, **values) -> str:
@@ -227,10 +226,15 @@ QUERY: {user_query}
 """
     prompt = _render_prompt_template(prompt_template, default_prompt, user_query=user_query, query=user_query)
     try:
-        response = llm.invoke(prompt)
-        raw = response.content.strip()
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            response_format={"type": "json_object"},  # 🔥 ép JSO
+        )
+        content = response.choices[0].message.content
 
-        data = json.loads(raw)
+        data = json.loads(content)
 
         print("\nLLM xác đinh:", data)
         return data
@@ -583,10 +587,15 @@ Câu hỏi:
 """
     prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
     try:
-        response = llm.invoke(prompt)
-        raw = response.content.strip()
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
 
-        data = json.loads(raw)
+        data = json.loads(content)
         subject = data.get("subject")
 
         if subject not in ["gioi_thieu_dia_phuong", "lich_su_hanh_chinh", "dia_ly", "thong_ke", "lich_lam_viec", "thong_tin_lien_he", "khu_pho_ap_to_dan_pho"]:
@@ -637,10 +646,15 @@ Câu hỏi:
 """
     prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
     try:
-        response = llm.invoke(prompt)
-        raw = response.content.strip()
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
 
-        data = json.loads(raw)
+        data = json.loads(content)
 
         print("\nLLM xác đinh:", data)
         subject = data.get("subject")
@@ -722,10 +736,16 @@ Câu hỏi:
 """
     prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
     try:
-        response = llm.invoke(prompt)
-        raw = response.content.strip()
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            response_format={"type": "json_object"},  # 🔥 ép JSON
+        )
 
-        data = json.loads(raw)
+        content = response.choices[0].message.content
+
+        data = json.loads(content)
 
         print("\nLLM xác đinh:", data)
         subject = data.get("subject")
@@ -778,10 +798,16 @@ Câu hỏi:
 """
     prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
     try:
-        response = llm.invoke(prompt)
-        raw = response.content.strip()
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=prompt,
+            temperature=0.0,
+            response_format={"type": "json_object"},  # 🔥 ép JSON
+        )
 
-        data = json.loads(raw)
+        content = response.choices[0].message.content
+
+        data = json.loads(content)
 
         print("\nLLM xác đinh:", data)
 

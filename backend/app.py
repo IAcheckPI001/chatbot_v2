@@ -3966,6 +3966,7 @@ def chat_stream():
                 yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
                 return
             top_chunk = chunks[0] if chunks else {}
+            top_score = top_chunk.get("confidence_score", 0)
             logger.info(f"=> Điểm tài liệu tốt nhất: {top_chunk.get('confidence_score', 0)}")
 
             if top_score < 0.2:
@@ -4162,7 +4163,8 @@ def chat_stream():
             yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
             return
 
-        top_score = chunks[0]["confidence_score"] if chunks else 0
+        top_chunk = chunks[0] if chunks else {}
+        top_score = top_chunk.get("confidence_score", 0)
         logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
         logger.info(f"=> Chunks: {chunks}")
 
