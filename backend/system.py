@@ -222,6 +222,50 @@ def chunk_text(text, max_len=100):
 
     return chunks
 
+
+SAFE_LIST_PATTERNS_STRONG = [
+    r"\bdanh sach\b",
+    r"\bliet ke\b",
+    r"\btoan bo\b",
+    r"\btat ca\b",
+]
+
+SAFE_LIST_PATTERNS_WITH_TARGET = [
+    r"\bgom nhung ai\b",
+    r"\bgom nhung gi\b",
+    r"\bbao gom nhung ai\b",
+    r"\bbao gom nhung gi\b",
+    r"\bco nhung ai\b",
+    r"\bco nhung gi\b",
+    r"\bnhung ai\b",
+]
+
+LIST_TARGET_KEYWORDS = [
+    "lanh dao",
+    "can bo",
+    "cong chuc",
+    "nhan su",
+    "khu pho",
+    "ap",
+    "to dan pho",
+    "phong ban",
+    "bo phan",
+    "don vi truc thuoc",
+]
+
+def detect_query_mode_list_safe(q: str) -> bool:
+
+    for pattern in SAFE_LIST_PATTERNS_STRONG:
+        if re.search(pattern, q):
+            return True
+
+    has_target = any(re.search(rf"(?<!\w){re.escape(t)}(?!\w)", q) for t in LIST_TARGET_KEYWORDS)
+    if has_target:
+        for pattern in SAFE_LIST_PATTERNS_WITH_TARGET:
+            if re.search(pattern, q):
+                return True
+
+    return False
 # if __name__ == "__main__":
 #     help_content = "Kính chào anh/chị! Rất vui được hỗ trợ anh/chị. Anh/chị có thể hỏi về các thủ tục hành chính, thông tin chung, hoặc tổ chức bộ máy của phường. Anh/chị cần giúp đỡ về vấn đề gì ạ?"
 #     out_of_score_content = "Nội dung anh/chị hỏi nằm ngoài phạm vi hỗ trợ của hệ thống.\nAnh/chị vui lòng liên hệ đơn vị phù hợp hoặc đặt câu hỏi liên quan đến thủ tục hành chính để được hỗ trợ."

@@ -3,6 +3,7 @@ import re
 from embedding import cosine
 from functools import lru_cache
 import unicodedata
+from typing import List
 
 ## rewrite check block
 
@@ -174,6 +175,7 @@ CONTEXT_RULES = [
     (r"\bhộ\s+kd\b", r"hộ kinh doanh"),
 
     (r"\b(dk|đk|đăng ký)\s+kd\b", r"\1 kinh doanh"),
+    (r"\b(dk|đk|đăng ký)\s+bao hiểm\b", r"\1 bảo hiểm"),
 
     (r"\b(dk|đk|đăng ký|giấy|làm)\s+(lại\s+)?ks\b", r"đăng ký \2khai sinh"),
     (r"\b(dk|đk|đăng ký|giấy|làm)\s+(lại\s+)?kt\b", r"đăng ký \2khai tử"),
@@ -207,6 +209,27 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
     return text.lower().strip()
 
+def ensure_list_str(value) -> List[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        value = value.strip()
+        return [value] if value else []
+
+    if isinstance(value, (list, tuple, set)):
+        result = []
+        for item in value:
+            if item is None:
+                continue
+            s = str(item).strip()
+            if s:
+                result.append(s)
+        return result
+
+    s = str(value).strip()
+    return [s] if s else []
+
 def normalize_llm_label(value):
     if value is None:
         return None
@@ -223,6 +246,35 @@ def normalize_subject_value(value):
     if isinstance(value, dict):
         value = value.get("subject")
     return normalize_llm_label(value)
+
+def normalize_meta_primary(meta_primary_raw):
+    if meta_primary_raw is None:
+        return None
+
+    # Nếu là list → lấy phần tử đầu
+    if isinstance(meta_primary_raw, list):
+        if not meta_primary_raw:
+            return None
+        meta_primary_raw = meta_primary_raw[0]
+
+    value = str(meta_primary_raw).strip()
+    return value or None
+
+
+def normalize_mode_values(mode_values_raw):
+    if not isinstance(mode_values_raw, list):
+        return []
+
+    result = []
+    for item in mode_values_raw:
+        if item is None:
+            continue
+
+        value = str(item).strip()
+        if value:
+            result.append(value)
+
+    return result
 
 class AbbreviationResolver:
 
@@ -440,3 +492,23 @@ def check_rewrite(q_norm, query_embedding, last_a_emb):
         return True
 
     return False
+
+# if __name__ == "__main__":
+#     resolver = AbbreviationResolver(SINGLE_TOKEN_MAP, CONTEXT_RULES)
+
+#     test_sentences = [
+#         "Tôi muốn đăng ký hk",
+#         "Làm sao để dk ks?",
+#         "Tôi cần dk kt gấp",
+#         "Nop onl được không?",
+#         "Hồ sơ onl ở đâu?",
+#         "Cách dk bh nhanh nhất?",
+#         "Tôi muốn dk bh",
+#         "Làm sao để dk bh?",
+#     ]
+
+#     for sentence in test_sentences:
+#         result = resolver.process(sentence)
+#         print(f"Original: {sentence}")
+#         print(f"Expanded: {result['expanded']}")
+#         print("-" * 40)

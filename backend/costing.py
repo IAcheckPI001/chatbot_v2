@@ -17,7 +17,7 @@ def _estimate_tokens_fallback(text: str) -> int:
 	return max(1, math.ceil(len(text) / 4))
 
 
-def count_tokens(text: Any, model: str = "gpt-4o-mini") -> int:
+def count_tokens(text: Any, model: str = "gpt-4.1-mini") -> int:
 	"""Count tokens for a text input.
 
 	Uses tiktoken when available; otherwise falls back to a rough estimate.

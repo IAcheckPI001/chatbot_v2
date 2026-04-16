@@ -32,7 +32,7 @@ llm = ChatOpenAI(
 )
 
 llm_rewrite = ChatOpenAI(
-    model_name="gpt-4o-mini",
+    model_name="gpt-4.1-mini",
     temperature=0.0,
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
@@ -585,6 +585,95 @@ Câu hỏi:
         print("LLM classify error:", e)
         return None
 
+
+def classify_category_v2(query: str, prompt_template: str = None):
+    default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã.
+
+NHIỆM VỤ: Xác định category của câu hỏi.
+
+CATEGORY (chỉ chọn 1):
+
+1. thu_tuc_hanh_chinh  
+Câu hỏi về quy trình / hồ sơ / đăng ký / cấp giấy / thủ tục / nộp ở đâu / cần giấy tờ gì
+
+2. to_chuc_bo_may
+- Câu hỏi về con người, chức danh, nhân sự, cơ cấu tổ chức, bộ phận, phòng ban, đơn vị trực thuộc, các thành phần cấu thành của UBND/xã/phường.
+- Bao gồm:
+  + ai là ai, ai giữ chức vụ gì, ai phụ trách lĩnh vực nào
+  + danh sách cán bộ, lãnh đạo, nhân sự
+  + UBND có những bộ phận nào, cơ cấu tổ chức ra sao
+
+3. thong_tin_tong_quan
+- Câu hỏi về thông tin chung của địa phương hoặc cơ quan:
+  giới thiệu chung, lịch sử hành chính, vị trí địa lý, dân số, diện tích, số hộ, khu phố/ấp/tổ dân phố, giờ làm việc, lịch tiếp dân, địa chỉ trụ sở, hotline, email, website của cơ quan.
+
+4. phan_anh_kien_nghi
+- Câu hỏi dùng để phản ánh, kiến nghị, tố cáo, khiếu nại, báo sự cố, báo vi phạm, đề nghị cơ quan chức năng kiểm tra hoặc xử lý một vấn đề thực tế tại địa phương.
+
+5. tuong_tac
+- Chỉ dùng cho tương tác ngắn/phụ trợ: chào hỏi, cảm ơn, tạm biệt, xin lỗi, phàn nàn chung chung, chửi bới, xúc phạm.
+Ví dụ: "trả lời khó hiểu vậy", "mày ngu quá", "bọn chính quyền toàn lừa đảo", "đám cán bộ này toàn lũ ngu" 
+
+6. chu_de_cam
+- Câu hỏi chứa các nội dung phạm pháp, bạo lực, đồi trụy, đời tư nhạy cảm (hỏi vợ con của người khác), trình bày ý kiến cực đoan, thù ghét, kích động bạo lực, 
+Ví dụ: "làm sao trốn thuế", "làm giả giấy tờ", "thủ tục hối lộ làm sao", "cách sửa hồ sơ để được duyệt nhanh", "Ý kiến của bạn về Hồ Chí Minh là gì?"
+---
+
+QUY TẮC:
+
+- Không giải thích
+- Không tạo giá trị mới
+- Trả về JSON
+
+FORMAT:
+
+{{
+  "category": ""
+}}
+
+Câu hỏi:
+"{query}"
+"""
+    prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content.strip()
+
+        data = json.loads(raw)
+
+        category = data.get("category")
+
+        if category == "thu_tuc_hanh_chinh":
+            print(category)
+            return category
+
+        if category == "to_chuc_bo_may":
+            print(category)
+            return category
+
+        if category == "thong_tin_tong_quan":
+            print(category)
+            return category
+
+        if category == "phan_anh_kien_nghi":
+            print(category)
+            return category
+
+        if category == "tuong_tac":
+            print(category)
+            return category
+
+        if category == "chu_de_cam":
+            print(category)
+            return category
+
+        # Nếu LLM trả sai → fallback None
+        return None
+
+    except Exception as e:
+        print("LLM classify error:", e)
+        return None
+
 def check_classify_phan_anh_kien_nghi(query: str):
     prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường.
 
@@ -1064,7 +1153,6 @@ Câu hỏi: "{query}"
 #         return query
 def rewrite_query(query: str, prompt_template: str = None) -> str:
     default_prompt = f"""Bạn là hệ thống viết lại câu hỏi hoàn chỉnh cho chatbot hành chính cấp xã/phường.
-
 NHIỆM VỤ
 Viết lại câu hỏi hiện tại thành một câu hỏi độc lập, ngắn gọn, tự nhiên, giữ nguyên ý nghĩa ban đầu.
 
@@ -1101,16 +1189,16 @@ Câu hiện tại: "sdt của chị Thu là gì"
 → "số điện thoại của chị Thu là gì"
 
 Câu hiện tại: "vậy còn chủ tịch tp là ai"
-→ "vậy còn chủ tịch thành phố là ai"
+→ "chủ tịch thành phố là ai"
 
 Câu hiện tại: "trưởng kp 2 của xã là ai"
 → "trưởng khu phố 2 của xã là ai"
 
 Câu hiện tại: "ct phường là ai?"
-→ "chủ tịch phường là ai?"
+→ "chủ tịch phường là ai"
 
 Câu hiện tại: "ai là trường kp 8 á?"
-→ "ai là trưởng khu phố 8?"
+→ "ai là trưởng khu phố 8"
 
 Câu hiện tại: "bt phường là ai"
 → "bí thư phường là ai"
@@ -1174,7 +1262,7 @@ Kết quả: đăng ký lại khai sinh cần giấy tờ gì
 2. Đổi đối tượng nhưng giữ mẫu hỏi
 Câu trước: đăng ký kết hôn làm sao/như thế nào
 Câu hiện tại: còn mất cccd
-Kết quả: còn mất cccd làm sao
+Kết quả: còn mất căn cước công dân làm sao
 
 Câu trước: ai là trưởng khu phố 1 của xã
 Câu hiện tại: còn trưởng kp 2
@@ -1183,7 +1271,7 @@ Kết quả: ai là trưởng khu phố 2 của xã
 3. Chỉ còn trường thông tin cần hỏi
 Câu trước: địa chỉ ubnd xã ở đâu
 Câu hiện tại: số điện thoại
-Kết quả: số điện thoại của ubnd xã là gì
+Kết quả: số điện thoại của ủy ban nhân dân xã là gì
 
 Câu trước: đăng ký khai sinh có yếu tố nước ngoài
 Câu hiện tại: lệ phí bao nhiêu
@@ -1634,3 +1722,261 @@ Yêu cầu trình bày:
                 yield chunk.content
     except Exception:
         yield question
+
+
+llm_test = ChatOpenAI(
+    model_name="gpt-4.1-nano",
+    temperature=0.0,
+    max_tokens=50,
+    model_kwargs={
+        "response_format": {"type": "json_object"}
+    },
+    openai_api_key=os.getenv("OPENAI_API_KEY")
+)
+
+def classify_category_test(query: str, prompt_template: str = None):
+    default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã.
+
+NHIỆM VỤ: Xác định category của câu hỏi.
+
+CATEGORY (chỉ chọn 1):
+
+1. thu_tuc_hanh_chinh  
+Câu hỏi về quy trình / hồ sơ / đăng ký / cấp giấy / thủ tục / nộp ở đâu / cần giấy tờ gì
+
+2. phan_anh_kien_nghi
+- Câu hỏi dùng để phản ánh, kiến nghị, tố cáo, khiếu nại, báo sự cố, báo vi phạm, đề nghị cơ quan chức năng kiểm tra hoặc xử lý một vấn đề thực tế tại địa phương.
+
+3. tuong_tac
+- Chỉ dùng cho tương tác ngắn/phụ trợ: chào hỏi, cảm ơn, tạm biệt, xin lỗi, phàn nàn chung chung, chửi bới, xúc phạm.
+Ví dụ: "trả lời khó hiểu vậy", "mày ngu quá", "bọn chính quyền toàn lừa đảo", "đám cán bộ này toàn lũ ngu" 
+
+4. chu_de_cam
+- Câu hỏi chứa các nội dung phạm pháp, bạo lực, đồi trụy, đời tư nhạy cảm (hỏi vợ con của người khác), trình bày ý kiến cực đoan, thù ghét, kích động bạo lực, 
+Ví dụ: "làm sao trốn thuế", "làm giả giấy tờ", "thủ tục hối lộ làm sao", "cách sửa hồ sơ để được duyệt nhanh", "Ý kiến của bạn về Hồ Chí Minh là gì?"
+---
+
+QUY TẮC:
+
+- Không giải thích
+- Không tạo giá trị mới
+- Trả về JSON
+
+FORMAT:
+
+{{
+  "category": ""
+}}
+
+Câu hỏi:
+"{query}"
+"""
+    prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
+    try:
+        response = llm_test.invoke(prompt)
+        raw = response.content.strip()
+
+        data = json.loads(raw)
+
+        category = data.get("category")
+
+        if category == "thu_tuc_hanh_chinh":
+            print(category)
+            return category
+
+        if category == "phan_anh_kien_nghi":
+            print(category)
+            return category
+
+        if category == "tuong_tac":
+            print(category)
+            return category
+
+        if category == "chu_de_cam":
+            print(category)
+            return category
+
+        # Nếu LLM trả sai → fallback None
+        return None
+
+    except Exception as e:
+        print("LLM classify error:", e)
+        return None
+
+# from rule_base_fastCheck import classify_category_fast
+
+# if __name__ == "__main__":
+#     test_cases = [
+#         "xin chào",
+#         "chào bạn",
+#         "hello",
+#         "hi bot",
+#         "alo",
+#         "bạn là ai",
+#         "bạn giúp được gì",
+#         "bạn có làm được gì",
+#         "cảm ơn",
+#         "cảm ơn bạn nhé",
+#         "ok cảm ơn",
+#         "tạm biệt",
+#         "bye",
+#         "chúc bạn một ngày tốt lành",
+#         "mình cần hỗ trợ",
+#         "cho tôi hỏi một chút",
+#         "bạn còn ở đó không",
+#         "trả lời giúp tôi",
+#         "hướng dẫn tôi với",
+#         "xin tư vấn giúp",
+#         "tôi muốn hỏi",
+#         "nhờ bạn hỗ trợ",
+#         "cho hỏi được không",
+#         "bạn có online không",
+#         "check giúp tôi",
+#         "đồ ngu",
+#         "mày ngu thế",
+#         "địt mẹ",
+#         "đm",
+#         "con mẹ mày",
+#         "tao muốn giết nó",
+#         "làm sao để đốt nhà người khác",
+#         "cách chế bom",
+#         "cách hack facebook người khác",
+#         "hướng dẫn làm giấy tờ giả",
+#         "mua ma túy ở đâu",
+#         "cách tự tử",
+#         "cách trộm xe máy",
+#         "cách giết người không bị phát hiện",
+#         "làm sao để lừa đảo qua mạng",
+#         "cho tôi số điện thoại để đe dọa người khác",
+#         "gửi ảnh nóng cho tôi",
+#         "cách mở khóa điện thoại người khác",
+#         "cách phá camera nhà hàng xóm",
+#         "hướng dẫn đánh bạc online",
+#         "muốn báo công an về một vụ việc thì làm sao",
+#         "tôi muốn phản ánh đường bị ngập",
+#         "phản ánh rác thải sinh hoạt ở khu phố",
+#         "tôi muốn kiến nghị về đèn đường hư",
+#         "gửi góp ý về thái độ phục vụ của cán bộ",
+#         "tôi muốn khiếu nại việc giải quyết hồ sơ chậm",
+#         "tố cáo hành vi lấn chiếm vỉa hè",
+#         "phản ánh tiếng ồn vào ban đêm",
+#         "kiến nghị sửa chữa cống thoát nước",
+#         "tôi muốn báo tình trạng ô nhiễm",
+#         "làm sao để gửi phản ánh hiện trường",
+#         "quy trình nộp phản ánh kiến nghị như thế nào",
+#         "phản ánh cán bộ gây khó dễ",
+#         "tôi muốn góp ý về bộ phận một cửa",
+#         "báo cáo tình trạng đổ rác không đúng nơi quy định",
+#         "phản ánh đèn tín hiệu giao thông bị hỏng",
+#         "kiến nghị về việc nước sạch yếu",
+#         "phản ánh hồ sơ bị hẹn nhiều lần",
+#         "tố giác xây dựng trái phép",
+#         "tôi muốn gửi đơn khiếu nại",
+#         "cho tôi hỏi nơi tiếp nhận phản ánh",
+#         "phản ánh việc thu phí sai quy định",
+#         "kiến nghị về an ninh trật tự khu dân cư",
+#         "tôi muốn phản ánh tiếng karaoke quá lớn",
+#         "phản ánh cây xanh ngã đổ nguy hiểm",
+#         "thủ tục đăng ký khai sinh cần gì",
+#         "hồ sơ đăng ký kết hôn gồm những gì",
+#         "xin cấp lại giấy khai sinh như thế nào",
+#         "thủ tục xác nhận cư trú",
+#         "đăng ký tạm trú cần giấy tờ gì",
+#         "thủ tục chứng thực bản sao ở đâu",
+#         "lệ phí cấp giấy xác nhận tình trạng hôn nhân",
+#         "làm căn cước công dân cần gì",
+#         "bao lâu thì có kết quả đăng ký khai tử",
+#         "mẫu đơn xin xác nhận độc thân",
+#         "thủ tục nhập hộ khẩu",
+#         "xin giấy phép xây dựng nhà ở riêng lẻ",
+#         "quy trình đăng ký kinh doanh hộ cá thể",
+#         "hồ sơ xin cấp phép sửa chữa nhà",
+#         "xin xác nhận tạm trú online thế nào",
+#         "cần mang gì khi đi chứng thực chữ ký",
+#         "thời gian giải quyết thủ tục khai sinh",
+#         "nộp hồ sơ đăng ký kết hôn ở đâu",
+#         "điều kiện làm giấy khai sinh cho con",
+#         "xin trích lục hộ tịch cần gì",
+#         "thủ tục đăng ký khai tử",
+#         "làm sao để cấp lại sổ hộ nghèo",
+#         "quy trình xác nhận hồ sơ vay vốn",
+#         "cấp giấy xác nhận cư trú mất bao lâu",
+#         "xin giấy xác nhận độc thân cần những giấy tờ gì",
+#         "bí thư là ai",
+#         "chủ tịch phường là ai",
+#         "phó chủ tịch ubnd là ai",
+#         "địa chỉ ủy ban nhân dân ở đâu",
+#         "số điện thoại ubnd là gì",
+#         "ubnd làm việc mấy giờ",
+#         "danh sách lãnh đạo phường",
+#         "cán bộ tư pháp là ai",
+#         "ai phụ trách hộ tịch",
+#         "địa chỉ công an phường ở đâu",
+#         "trụ sở phường nằm ở đâu",
+#         "ubnd có làm việc thứ bảy không",
+#         "email liên hệ của phường là gì",
+#         "số hotline của phường",
+#         "giờ tiếp dân khi nào",
+#         "tôi muốn hỏi về tổ trưởng khu phố",
+#         "khu phố của tôi thuộc phường nào",
+#         "phường có bao nhiêu khu phố",
+#         "danh sách khu phố",
+#         "cơ quan này có chức năng gì",
+#         "tôi cần hỏi thông tin chung của phường",
+#         "lãnh đạo hiện nay gồm những ai",
+#         "phường có những bộ phận nào",
+#         "chức năng nhiệm vụ của ubnd là gì",
+#         "văn phòng một cửa ở đâu",
+#         "tôi muốn phản ánh nhưng không biết gửi ở đâu",
+#         "tôi muốn hỏi thủ tục để nộp phản ánh",
+#         "làm sao để khiếu nại quyết định hành chính",
+#         "tôi cần mẫu đơn khiếu nại",
+#         "phản ánh online bằng cách nào",
+#         "có thể nộp kiến nghị qua mạng không",
+#         "muốn tố cáo thì cần hồ sơ gì",
+#         "thủ tục gửi đơn tố cáo gồm những gì",
+#         "phản ánh hiện trường cần chuẩn bị gì",
+#         "tôi muốn kiến nghị thì liên hệ ở đâu",
+#         "đăng ký khai sinh online được không",
+#         "phản ánh khai sinh làm chậm thì gửi ở đâu",
+#         "đơn phản ánh thái độ cán bộ lấy ở đâu",
+#         "cho tôi biết cách góp ý dịch vụ công",
+#         "có hotline phản ánh hiện trường không",
+#         "quy trình tiếp nhận phản ánh ra sao",
+#         "tôi muốn phản ánh việc chậm cấp giấy tờ thì làm sao",
+#         "gửi phản ánh về môi trường bằng app nào",
+#         "làm sao để nộp đơn kiến nghị lên phường",
+#         "thủ tục phản ánh đèn đường hư",
+#         "bot ơi",
+#         "ad ơi cho hỏi",
+#         "có ai trả lời không",
+#         "giúp mình với",
+#         "mình cần hỗ trợ thủ tục",
+#         "tôi cần phản ánh một việc",
+#         "muốn hỏi hồ sơ cần gì",
+#         "nộp hồ sơ online như thế nào",
+#         "tôi bức xúc vì hồ sơ bị trễ",
+#         "phường làm ăn chán quá",
+#         "thái độ cán bộ quá tệ",
+#         "hồ sơ của tôi bị hẹn nhiều lần",
+#         "làm sao gặp chủ tịch phường",
+#         "xin số điện thoại bộ phận một cửa",
+#         "đăng ký kết hôn cần bao nhiêu tiền",
+#         "cần giấy tờ gì để đăng ký tạm trú",
+#         "phản ánh đổ rác sai quy định ở đâu",
+#         "góp ý về trật tự đô thị như thế nào",
+#         "thủ tục xin xác nhận nhân thân",
+#         "tôi muốn báo việc xây dựng trái phép"
+#     ]
+#     for test_query in test_cases:
+#         # test_query = input("Enter a test query (or 'exit' to quit): ")
+#         # if test_query.lower() == 'exit':
+#         #     break
+
+#         item = classify_category_rule_base(test_query)
+#         print(f"Query: {test_query}")
+#         print(f"{item['label']}")
+#         print("-" * 50)
+
+#         # category = classify_category_test(test_query)
+#         # print("Category:", category)

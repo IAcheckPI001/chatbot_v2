@@ -474,73 +474,6 @@ QUERY: {user_query}
 
 
 def classify_with_tong_quan(query: str, prompt_template: str = None):
-#     prompt = f"""Bạn là bộ tách ý hỏi và gán subject cho chatbot hành chính cấp xã/phường.
-
-# NHIỆM VỤ
-# - Xác định câu hỏi có 1 ý hay nhiều ý.
-# - Tách thành các ý nhỏ, ngắn gọn, đầy đủ nghĩa.
-# - Gán đúng 1 subject cho từng ý.
-
-# SUBJECT HỢP LỆ
-# - gioi_thieu_dia_phuong (giới )
-# - lich_su_hanh_chinh
-# - dia_ly (vị trí, địa chỉ, địa lý, tiếp giáp, nằm ở đâu, thuộc quận nào)
-# - thong_ke (chỉ dùng cho số liệu thống kê chung của địa phương như dân số, diện tích, số hộ, kinh tế - xã hội.)
-# - co_cau_to_chuc (cơ cấu tổ chức, bộ máy, các phòng ban, bộ phận chuyên môn, đơn vị trực thuộc của UBND xã/phường; quan hệ thuộc đơn vị nào, gồm những bộ phận nào, được tổ chức ra sao.)
-# - don_vi_khu_pho_ap (câu hỏi về khu phố, ấp, tổ dân phố, tổ nhân dân)
-# - giao_thong
-# - lich_lam_viec
-# - thong_tin_lien_he (hotline, số điện thoại, email, website của UBND)
-
-# QUY TẮC
-# - Nếu không xác định chắc chắn subject nào thì trả subject = null.
-# - Nếu chỉ có 1 ý chính thì vẫn trả về mảng units gồm 1 phần tử.
-# - Nếu có nhiều ý, tách thành nhiều units.
-# - Mỗi unit phải ngắn gọn nhưng đủ nghĩa.
-# - Không giải thích.
-# - Chỉ trả về JSON hợp lệ.
-
-# FORMAT
-# {{
-#   "query_mode": "single_intent" | "multi_intent" | None,
-#   "units": [
-#     {{"text": "...", "subject": "..."}}
-#   ]
-# }}
-
-# VÍ DỤ
-
-# Query: ngày hôm nay có phải ngày bầu cử không
-
-# {{
-#     "query_mode": "single_intent", 
-#     "units": [
-#      {{"text": "ngày hôm nay có phải ngày bầu cử không", "subject": None}}
-#     ]
-# }}
-
-# Câu hỏi: "địa chỉ ubnd và đường dây nóng"
-# {{
-#   "query_mode": "multi_intent",
-#   "units": [
-#     {{"text": "địa chỉ ubnd", "subject": "dia_ly"}},
-#     {{"text": "đường dây nóng của ubnd", "subject": "thong_tin_lien_he"}}
-#   ]
-# }}
-
-# Câu hỏi: "gioi thieu ngan gon ve xa ba diem"
-# {{
-#   "query_mode": "single_intent",
-#   "units": [
-#     {{"text": "giới thiệu ngắn gọn về xã Ba Điểm", "subject": "gioi_thieu_dia_phuong"}}
-#   ]
-# }}
-
-# Câu hỏi:
-# "{query}"
-# """
-
-# def classify_with_tong_quan(query: str):
     default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp xã/phường.
 
 NHIỆM VỤ
@@ -599,6 +532,126 @@ Câu hỏi:
         return None
 
 
+def classify_with_tong_quan_v2(query: str, prompt_template: str = None):
+    default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp xã/phường.
+NHIỆM VỤ
+Xác định đúng 1 subject.
+
+SUBJECT:
+
+1. gioi_thieu_dia_phuong
+- Dùng khi câu hỏi hỏi khái quát chung về địa phương.
+- Không dùng nếu câu hỏi thuộc rõ lịch sử, địa lý, thống kê, liên hệ, lịch làm việc.
+
+2. lich_su_hanh_chinh
+- Dùng khi hỏi về lịch sử hình thành, thay đổi địa giới, thay đổi tên gọi, quá trình phát triển hành chính.
+
+3. dia_ly
+- Dùng khi hỏi vị trí địa lý, tiếp giáp, thuộc quận/huyện nào, nằm ở đâu theo nghĩa địa bàn hành chính.
+- Không dùng nếu câu hỏi hỏi địa chỉ liên hệ của trụ sở UBND.
+
+4. thong_ke
+- Dùng khi hỏi số liệu chung của địa phương như dân số, diện tích, số hộ, kinh tế - xã hội.
+
+5. khu_pho_ap_to_dan_pho
+- Dùng khi hỏi về thông tin các khu phố, ấp, thôn, dân phố trong địa phương.
+
+6. lich_lam_viec
+- Dùng khi hỏi giờ làm việc, ngày làm việc, lịch tiếp dân.
+
+7. thong_tin_lien_he
+- Dùng khi hỏi địa chỉ trụ sở, số điện thoại, email, hotline, website, cách liên hệ UBND.
+- Nếu câu hỏi có từ "địa chỉ", "số điện thoại", "email", "hotline", ưu tiên subject này.
+
+VÍ DỤ
+Câu hỏi: "địa chỉ UBND xã ở đâu?"
+{{"subject": "thong_tin_lien_he"}}
+
+Câu hỏi: "xã này thuộc quận nào?"
+{{"subject": "dia_ly"}}
+
+Câu hỏi: "dân số xã là bao nhiêu?"
+{{"subject": "thong_ke"}}
+
+FORMAT
+{{"subject": ""}}
+
+Không giải thích. Không tạo giá trị mới. Chỉ trả JSON.
+
+Câu hỏi:
+"{query}"
+"""
+    prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content.strip()
+
+        data = json.loads(raw)
+        subject = data.get("subject")
+
+        if subject not in ["gioi_thieu_dia_phuong", "lich_su_hanh_chinh", "dia_ly", "thong_ke", "lich_lam_viec", "thong_tin_lien_he", "khu_pho_ap_to_dan_pho"]:
+            subject = None
+        return subject
+
+    except Exception as e:
+        print("LLM classify error:", e)
+        return None
+
+def classify_with_to_chuc_bo_may(query: str, prompt_template: str = None):
+    default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp xã/phường.
+
+NHIỆM VỤ
+Chọn đúng 1 subject.
+
+SUBJECT
+1. chuc_vu
+- Hỏi 1 chức danh/vị trí cụ thể hoặc ai đang giữ chức đó.
+- Ví dụ: chủ tịch là ai, ai đứng đầu, ai phụ trách địa chính.
+
+2. nhan_su
+- Hỏi về con người hoặc danh sách người: lãnh đạo, cán bộ, công chức, nhân sự.
+- Ví dụ: danh sách lãnh đạo, cán bộ gồm những ai, có bao nhiêu cán bộ.
+
+3. co_cau_to_chuc
+- Hỏi về cơ cấu, bộ phận, phòng ban, đơn vị trực thuộc, khu phố, ấp, tổ dân phố.
+- Ví dụ: UBND có những bộ phận nào, xã có những khu phố nào.
+
+QUY TẮC
+- Hỏi 1 chức danh cụ thể => chuc_vu
+- Hỏi danh sách người / đội ngũ người => nhan_su
+- Hỏi bộ phận / phòng ban / đơn vị / khu phố / ấp / tổ dân phố => co_cau_to_chuc
+
+VÍ DỤ
+"chủ tịch UBND xã là ai?" => {{"subject":"chuc_vu"}}
+"danh sách lãnh đạo UBND xã" => {{"subject":"nhan_su"}}
+"UBND xã có những bộ phận nào?" => {{"subject":"co_cau_to_chuc"}}
+"xã có những khu phố nào?" => {{"subject":"co_cau_to_chuc"}}
+
+FORMAT
+{{"subject":""}}
+
+Chỉ trả JSON hợp lệ, không giải thích.
+
+Câu hỏi:
+"{query}"
+"""
+    prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
+    try:
+        response = llm.invoke(prompt)
+        raw = response.content.strip()
+
+        data = json.loads(raw)
+
+        print("\nLLM xác đinh:", data)
+        subject = data.get("subject")
+        if subject not in ["chuc_vu", "nhan_su", "co_cau_to_chuc"]:
+            subject = None
+            
+        return subject
+
+    except Exception as e:
+        print("LLM classify error:", e)
+        return None
 
 def classify_with_phan_anh(query: str, prompt_template: str = None):
     default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp xã/phường.
@@ -816,22 +869,29 @@ def export_metadata_filter_chunk(category, query):
         
     return chunk_response
 
-# from model import llm_answer
 
+
+# # from model import llm_answer
+# from model import classify_category_v2
 # if __name__ == "__main__":
-#     TEST_THONG_TIN_TONG_QUAN = [
-#         # "khu phố nào có di tích vườn cau đỏ",
-#         # "vườn cau đỏ là khu di tích hả",
-#         # "vườn cau đỏ ở đâu",
-#         "bộ phận công an xã thuộc ấp bắc lân à?",
-#     ]
-#     for query in TEST_THONG_TIN_TONG_QUAN:
+#     # TEST_THONG_TIN_TONG_QUAN = [
+#     #     # "khu phố nào có di tích vườn cau đỏ",
+#     #     # "vườn cau đỏ là khu di tích hả",
+#     #     # "vườn cau đỏ ở đâu",
+#     #     "xã có bao nhiêu khu phố",
+#     # ]
+
+#     query = ""
+#     while True:
+#         query = input("Nhập câu hỏi: ").strip()
+#         if query.lower() in {"exit", "quit", "q"}:
+#             break
 #         print("\n====================\n")
 #         print(f"Query: {query}")
-#         data = classify_with_tong_quan(query)
-#         subject = data.get("subject")
-        # units = data.get("units") or []
-
+#         category = classify_with_tong_quan_v2(query)
+#         # subject = data["subject"]
+#         # units = data.get("units") or []
+#         print(f"Category: {category}")
         # for i, unit in enumerate(units):
 
         #     subject = unit.get("subject")
