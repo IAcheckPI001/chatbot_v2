@@ -1196,10 +1196,8 @@ QUY TẮC QUAN TRỌNG
   - pct -> phó chủ tịch
   - bt -> bí thư
   - kp -> khu phố
-  - ubnd -> ủy ban nhân dân
   - tp -> thành phố
 - Với lỗi rõ ràng trong ngữ cảnh:
-  - trường khu phố -> trưởng khu phố
   - trường kp -> trưởng khu phố
 
 VÍ DỤ

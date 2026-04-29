@@ -231,7 +231,6 @@ INTENT_KEYWORDS_COMMON = {
     "tra_cuu_thong_tin": [
         "gioi thieu",
         "tong quan",
-        "la gi",
         "la to chuc gi",
         "chuc nang",
         "nhiem vu",
@@ -246,7 +245,6 @@ INTENT_KEYWORDS_COMMON = {
         "co cau",
         "bo phan",
         "thong tin",
-        "lien he",
         "lam gi",
         "lam nhung viec gi",
         "hoat dong gi",
@@ -257,7 +255,6 @@ INTENT_KEYWORDS_COMMON = {
     "hoi_nhan_su": [
         "ai dung dau",
         "lanh dao",
-        "nhan su",
         "chu tich",
         "pho chu tich",
         "bi thu",
@@ -593,10 +590,10 @@ PHRASE_DEFS = [
     # =====================================================
 
     {"text": "ai dung dau", "kind": "intent", "label": "hoi_nhan_su", "priority": 80},
+    {"text": "dung dau la ai", "kind": "intent", "label": "hoi_nhan_su", "priority": 80},
     {"text": "ai la ai", "kind": "intent", "label": "hoi_nhan_su", "priority": 80},
     {"text": "la ai", "kind": "intent", "label": "hoi_nhan_su", "priority": 60},
     {"text": "lanh dao", "kind": "intent", "label": "hoi_nhan_su", "priority": 70},
-    {"text": "nhan su", "kind": "intent", "label": "hoi_nhan_su", "priority": 70},
     {"text": "chu tich", "kind": "intent", "label": "hoi_nhan_su", "priority": 60},
     {"text": "pho chu tich", "kind": "intent", "label": "hoi_nhan_su", "priority": 60},
     {"text": "bi thu", "kind": "intent", "label": "hoi_nhan_su", "priority": 65},

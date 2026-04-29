@@ -3145,13 +3145,13 @@ def chat_stream_v2():
             yield from emit_log(f"Không thể tải prompt templates: {str(e)}", force=True)
 
         history_rewrite_prompt = pick_prompt_template(prompt_templates, "history_rewrite")
-        classify_category_prompt = pick_prompt_template(prompt_templates, "classify_category")
-        classify_subject_procedure_prompt = pick_prompt_template(prompt_templates, "classify_subject_procedure")
-        answer_procedure_prompt = pick_prompt_template(prompt_templates, "answer_procedure")
-        classify_subject_qa_prompt = pick_prompt_template(prompt_templates, "classify_subject_QA")
-        classify_subject_tuong_tac_prompt = pick_prompt_template(prompt_templates, "classify_subject_tuong_tac")
-        classify_subject_phan_anh_prompt = pick_prompt_template(prompt_templates, "classify_subject_phan_anh")
-        answer_qa_prompt = pick_prompt_template(prompt_templates, "answer_QA")
+        # classify_category_prompt = pick_prompt_template(prompt_templates, "classify_category")
+        # classify_subject_procedure_prompt = pick_prompt_template(prompt_templates, "classify_subject_procedure")
+        # answer_procedure_prompt = pick_prompt_template(prompt_templates, "answer_procedure")
+        # classify_subject_qa_prompt = pick_prompt_template(prompt_templates, "classify_subject_QA")
+        # classify_subject_tuong_tac_prompt = pick_prompt_template(prompt_templates, "classify_subject_tuong_tac")
+        # classify_subject_phan_anh_prompt = pick_prompt_template(prompt_templates, "classify_subject_phan_anh")
+        # answer_qa_prompt = pick_prompt_template(prompt_templates, "answer_QA")
 
         # history_data = get_recent_session_history_cached(session_id, tenant_code, limit=2)
         history_data = None
@@ -3159,7 +3159,7 @@ def chat_stream_v2():
         
         logger.info(f"Câu hỏi người dùng: {origin_mess}")
         if not history_data:
-            logger.info(f"Chuẩn hóa không có lịch sử")
+            logger.info(f"Chuẩn hóa không có lịch sử với {user_message}")
             start = time.perf_counter()
             user_message = rewrite_query(user_message, prompt_template=None)
 

@@ -5,8 +5,6 @@ from functools import lru_cache
 import unicodedata
 from typing import List
 
-## rewrite check block
-
 MAIN_ENTITIES = [
     # Địa phương
     "xa ba diem",
@@ -128,8 +126,9 @@ NORMALIZED_BANNED = [
 # }
 
 SINGLE_TOKEN_MAP = {
-    # "ubnd": "ủy ban nhân dân",
-    # "hdnd": "hội đồng nhân dân",
+    "mttq": "mặt trận tổ quốc",
+    "ubnd": "ủy ban nhân dân",
+    "hdnd": "hội đồng nhân dân",
     "ct": "chủ tịch",
     "pct": "phó chủ tịch",
     "pbt": "phó bí thư",
@@ -493,22 +492,3 @@ def check_rewrite(q_norm, query_embedding, last_a_emb):
 
     return False
 
-# if __name__ == "__main__":
-#     resolver = AbbreviationResolver(SINGLE_TOKEN_MAP, CONTEXT_RULES)
-
-#     test_sentences = [
-#         "Tôi muốn đăng ký hk",
-#         "Làm sao để dk ks?",
-#         "Tôi cần dk kt gấp",
-#         "Nop onl được không?",
-#         "Hồ sơ onl ở đâu?",
-#         "Cách dk bh nhanh nhất?",
-#         "Tôi muốn dk bh",
-#         "Làm sao để dk bh?",
-#     ]
-
-#     for sentence in test_sentences:
-#         result = resolver.process(sentence)
-#         print(f"Original: {sentence}")
-#         print(f"Expanded: {result['expanded']}")
-#         print("-" * 40)

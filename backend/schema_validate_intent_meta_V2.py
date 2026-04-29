@@ -428,6 +428,7 @@ MTTQ_PARTICIPATION_TOPICS_V2 = [
     "gia_nhap_thanh_vien_mttq",
     "thoi_lam_thanh_vien_mttq",
     "tham_gia_hoat_dong_mat_tran",
+    "kien_toan_nhan_su_mttq"
 ]
 
 CONG_DOAN_PARTICIPATION_TOPICS_V2 = [
@@ -879,7 +880,6 @@ YÊU CẦU CHỌN META
 - Nếu query hỏi "điều kiện" => ưu tiên condition
 - Nếu query hỏi "bao lâu", "khi nào", "thời hạn" => ưu tiên deadline nếu schema có
 - Nếu query hỏi "lệ phí", "đóng bao nhiêu" => ưu tiên fee nếu schema có
-- Nếu query hỏi "ai", "là ai", "gồm những ai", "danh sách" => ưu tiên query_mode thuộc nhân sự phù hợp
 - Nếu query hỏi "địa chỉ", "số điện thoại", "email", "website" => ưu tiên field/contact phù hợp
 
 Chỉ trả JSON.
@@ -943,9 +943,10 @@ SCHEMAS_BY_INTENT
 
 YÊU CẦU CHỌN INTENT
 - Chỉ chọn 1 intent phù hợp nhất với ý chính của câu hỏi.
-- Nếu câu hỏi hỏi về "ai", "là ai", "gồm những ai", "danh sách", "có mấy" => ưu tiên hoi_nhan_su nếu intent này được phép.
+- Nếu câu hỏi có từ "nhân sự" nhưng hỏi "kiện toàn", "bổ sung", "thay thế", "quy trình", "thủ tục", "hồ sơ", "cách thực hiện" trong Ban Thường trực/Ủy ban MTTQ => ưu tiên tham_gia_to_chuc, không chọn hoi_nhan_su.
+- Nếu câu hỏi hỏi về người/cán bộ hoặc danh sách nhóm người, bao gồm hỏi người đó là ai, giữ chức vụ gì, thuộc bộ phận nào, số điện thoại, email, thông tin liên hệ của người đó => ưu tiên hoi_nhan_su nếu intent này được phép.
 - Nếu câu hỏi hỏi về "cần gì", "hồ sơ gì", "giấy tờ gì", "thủ tục", "quy trình", "điều kiện", "bao lâu", "lệ phí" => ưu tiên intent thủ tục/tham gia/sinh hoạt tương ứng.
-- Nếu câu hỏi hỏi về "quyền lợi", "được gì", "được hỗ trợ gì", "được hưởng gì", "nghĩa vụ" => ưu tiên quyen_loi_ho_tro nếu intent này được phép.
+- Nếu câu hỏi hỏi về "quyền lợi", "được gì", "được hỗ trợ gì", "được hưởng gì", "nghĩa vụ", "giám sát phản biện", "phản ánh kiến nghị của Nhân dân", "đại diện ý chí nguyện vọng" => ưu tiên quyen_loi_ho_tro nếu intent này được phép.
 - Nếu câu hỏi hỏi về "phản ánh", "kiến nghị", "khiếu nại", "tố cáo" => ưu tiên phan_anh_kien_nghi nếu intent này được phép.
 - Nếu câu hỏi hỏi về thông tin chung như địa chỉ, số điện thoại, email, website, chức năng, nhiệm vụ, hoạt động => ưu tiên tra_cuu_thong_tin nếu intent này được phép.
 
