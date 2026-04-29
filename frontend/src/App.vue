@@ -1494,21 +1494,7 @@ function isUbndOrganization(value: unknown) {
 }
 
 const isOrganizationMode = computed(() => {
-  const selectedOrganizationType = getSelectedOrganizationType()
-  if (selectedOrganizationType === 'ubnd') {
-    return false
-  }
-
-  if (selectedOrganizationType && selectedOrganizationType !== 'ubnd') {
-    return true
-  }
-
-  const rows = sortedFilteredChunks.value
-  if (rows.length === 0) {
-    return false
-  }
-
-  return rows.every(item => !isUbndOrganization(item?.procedure_action))
+  return true
 })
 
 function getSelectedOrganizationType() {
@@ -1545,22 +1531,21 @@ const intentOptionsForFilter = computed(() => {
 
 const showIntentFilter = computed(() => {
   const selectedOrganizationType = getSelectedOrganizationType()
-  return Boolean(selectedOrganizationType && selectedOrganizationType !== 'ubnd')
+  return Boolean(selectedOrganizationType)
 })
 
 watch(procedureActionFilter, () => {
   const selectedOrganizationType = getSelectedOrganizationType()
 
   intentFilter.value = ''
-  if (selectedOrganizationType && selectedOrganizationType !== 'ubnd') {
+  if (selectedOrganizationType) {
     categoryFilter.value = ''
     subjectFilter.value = ''
     return
   }
 
-  if (selectedOrganizationType === 'ubnd') {
-    intentFilter.value = ''
-  }
+  categoryFilter.value = ''
+  subjectFilter.value = ''
 })
 
 function fieldBadgeClass(value: string) {
@@ -3077,21 +3062,6 @@ onMounted(() => {
             <option value="dang_uy">Đảng ủy</option>
           </select>
         </div>
-        <div class="filter-group" v-if="!isOrganizationMode">
-          <label>Category:</label>
-          <select v-if="getSelectedOrganizationType() === 'ubnd'" v-model="categoryFilter" class="filter-select">
-            <option value="">Tất cả</option>
-            <option value="thong_tin_tong_quan">Thông tin tổng quan</option>
-            <option value="to_chuc_bo_may">Tổ chức bộ máy</option>
-          </select>
-          <select v-else v-model="categoryFilter" class="filter-select">
-            <option value="">Tất cả</option>
-            <option value="thong_tin_tong_quan">Thông tin tổng quan</option>
-            <option value="to_chuc_bo_may">Tổ chức bộ máy</option>
-            <option value="thu_tuc_hanh_chinh">Thủ tục hành chính</option>
-            <option value="phan_anh_kien_nghi">Phản ánh kiến nghị</option>
-          </select>
-        </div>
         <div class="filter-group" v-if="showIntentFilter">
           <label>Intent:</label>
           <select v-model="intentFilter" class="filter-select">
@@ -3099,67 +3069,6 @@ onMounted(() => {
             <option v-for="intentOption in intentOptionsForFilter" :key="intentOption" :value="intentOption">
               {{ intentOption }}
             </option>
-          </select>
-        </div>
-        <div class="filter-group" v-if="!isOrganizationMode">
-          <label>Subject:</label>
-          <select v-if="categoryFilter == 'thu_tuc_hanh_chinh'" v-model="subjectFilter" class="filter-select">
-            <option value="">Tất cả</option>
-            <option value="tu_phap_ho_tich">Tư pháp hộ tịch</option>
-            <option value="doanh_nghiep">Doanh nghiệp</option>
-            <option value="giao_thong_van_tai">Giao thông vận tải</option>
-            <option value="dat_dai">Đất đai</option>
-            <option value="xay_dung_nha_o">Xây dựng nhà ở</option>
-            <option value="dau_tu">Đầu tư</option>
-            
-            <option value="lao_dong_viec_lam">Lao động việc làm</option>
-            <option value="bao_hiem_an_sinh">Bảo hiểm an sinh</option>
-            <option value="giao_duc_dao_tao">Giáo dục đào tạo</option>
-            <option value="y_te">Y tế</option>
-            <option value="tai_nguyen_moi_truong">Tài nguyên môi trường</option>
-            <option value="van_hoa_the_thao_du_lich">Văn hóa thể thao du lịch</option>
-            
-            <option value="khoa_hoc_cong_nghe">Khoa học công nghệ</option>
-            <option value="thong_tin_truyen_thong">Thông tin truyền thông</option>
-            <option value="nong_nghiep">Nông nghiệp</option>
-            <option value="cong_thuong">Công thương</option>
-            <option value="tai_chinh_thue_phi">Tài chính thuế phí</option>
-          </select>
-          <select v-if="categoryFilter == 'thong_tin_tong_quan' && getSelectedOrganizationType() === 'ubnd'" v-model="subjectFilter" class="filter-select">
-            <option value="">Tất cả</option>
-            <option value="gioi_thieu_chung">Giới thiệu chung</option>
-            <option value="chuc_nang_nhiem_vu">Chức năng nhiệm vụ</option>
-            <option value="hoi_vien_doi_tuong_phuc_vu">Hội viên đối tượng phục vụ</option>
-            <option value="hoat_dong_phong_trao">Hoạt động phong trào</option>
-            <option value="chuong_trinh_ho_tro">Chương trình hỗ trợ</option>
-            <option value="thu_tuc_quy_trinh">Thủ tục quy trình</option>
-            <option value="quy_dinh_huong_dan">Quy định hướng dẫn</option>
-            <option value="thong_tin_lien_he">Thông tin liên hệ</option> 
-          </select>
-           <select v-if="categoryFilter == 'thong_tin_tong_quan' && getSelectedOrganizationType() !== 'ubnd'" v-model="subjectFilter" class="filter-select">
-            <option value="">Tất cả</option>
-            <option value="gioi_thieu_dia_phuong">Giới thiệu địa phương</option>
-            <option value="lich_su_hanh_chinh">Lịch sử hành chính</option>
-            <option value="dia_ly">Địa lý</option>
-            <option value="thong_ke">Thống kê</option>
-            <option value="khu_pho_ap_to_dan_pho">Khu phố/ấp/tổ dân phố</option>
-            <option value="giao_thong">Giao thông</option>
-            <option value="lich_lam_viec">Lịch làm việc</option>
-            <option value="thong_tin_lien_he">Thông tin liên hệ</option> 
-          </select>
-          <select v-if="categoryFilter == 'to_chuc_bo_may'" v-model="subjectFilter" class="filter-select">
-            <option value="">Tất cả</option>
-            <option value="nhan_su">Nhân sự</option>
-            <option value="chuc_vu">Chức vụ</option>
-          </select>
-          <select v-if="categoryFilter == 'phan_anh_kien_nghi'" v-model="subjectFilter" class="filter-select">
-            <option value="">Tất cả</option>
-            <option value="ha_tang">Hạ tầng</option>
-            <option value="moi_truong">Môi trường</option>
-            <option value="an_ninh_trat_tu">An ninh trật tự</option>
-            <option value="do_thi">Đô thị</option>
-            <option value="giao_thong">Giao thông</option>
-            <option value="khieu_nai_to_cao">Khiếu nại tố cáo</option>
           </select>
         </div>
         <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''; intentFilter = ''; procedureActionFilter = ALL_ORGANIZATIONS_FILTER; exactChunkIdFilter = ''">Xóa bộ lọc</button>
@@ -3179,13 +3088,9 @@ onMounted(() => {
                   {{ sortDir === 'asc' ? '▲' : '▼' }}
                 </span>
               </th>
-              <th v-if="!isOrganizationMode" class="col-index">Category</th>
-              <th v-if="!isOrganizationMode" class="col-index">Subject</th>
-              <th v-if="!isOrganizationMode" class="col-index">Scope</th>
-              <th v-if="isOrganizationMode" class="col-index">intent_type</th>
-              <th v-if="isOrganizationMode" class="col-index">entity</th>
-              <th v-if="isOrganizationMode" class="col-index">fields</th>
-              <th v-if="!isOrganizationMode" class="col-index">organization</th>
+              <th class="col-index">intent_type</th>
+              <th class="col-index">entity</th>
+              <th class="col-index">fields</th>
               <!-- <th class="col-index">procedure_action</th>
               <th class="col-index">special_contexts</th> -->
               <!-- <th class="col-index">Keywords</th> -->
@@ -3195,7 +3100,7 @@ onMounted(() => {
 
           <tbody>
             <tr v-if="chunksData.length === 0">
-              <td colspan="8" style="text-align: center; padding: 20px; color: #999;">
+              <td colspan="7" style="text-align: center; padding: 20px; color: #999;">
                 {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
               </td>
             </tr>

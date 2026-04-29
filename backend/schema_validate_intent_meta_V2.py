@@ -287,6 +287,8 @@ DANG_UY_PERSON_ROLES = [
     "bi_thu_dang_uy",
     "pho_bi_thu_dang_uy",
     "lanh_dao_dang_uy",
+    "uy_vien_dang_uy",
+    "uy_vien_ban_thuong_vu_dang_uy"
 ]
 
 DANG_UY_ACTIVITY_TOPICS = [
@@ -308,18 +310,22 @@ DANG_UY_ACTIVITY_QUERY_MODES = [
 # =========================================================
 
 UBND_PERSON_ROLES = [
-    "lanh_dao",
+    "lanh_dao_ubnd",
+    "lanh_dao_hdnd",
     "chu_tich_hdnd",
     "pho_chu_tich_hdnd",
     "chu_tich_ubnd",
     "pho_chu_tich_ubnd",
     "truong_khu_pho",
     "truong_ap",
-    "cong_chuc_tu_phap_ho_tich",
-    "cong_chuc_dia_chinh",
-    "cong_chuc_van_hoa_xa_hoi",
-    "cong_an_xa",
-    "chi_huy_truong_quan_su",
+    "truong_phong",
+    "pho_truong_phong",
+    "truong_ban",
+    "pho_truong_ban",
+    "chanh_van_phong",
+    "pho_chanh_van_phong",
+    "giam_doc",
+    "pho_giam_doc"
 ]
 
 DOAN_PERSON_ROLES_V2 = [
@@ -351,8 +357,17 @@ CONG_DOAN_PERSON_ROLES_V2 = [
     "pho_chu_tich_cong_doan",
     "ban_chap_hanh_cong_doan",
     "ban_thuong_vu_cong_doan",
-    "lanh_dao_cong_doan",
+    "lanh_dao_cong_doan"
 ]
+
+ALL_PERSON_ROLES = sorted(set(
+    UBND_PERSON_ROLES
+    + DANG_UY_PERSON_ROLES
+    + DOAN_PERSON_ROLES_V2
+    + HPN_PERSON_ROLES_V2
+    + MTTQ_PERSON_ROLES_V2
+    + CONG_DOAN_PERSON_ROLES_V2
+))
 
 # =========================================================
 # V2 - BENEFIT TOPICS
@@ -671,6 +686,14 @@ CONG_DOAN_FEEDBACK_SCHEMA = _make_object_schema(
     required=["domain", "subtype"],
 )
 
+GLOBAL_PERSON_SCHEMA = _make_object_schema(
+    properties={
+        "role": _make_enum_property(ALL_PERSON_ROLES),
+        "query_mode": _make_array_enum_property(COMMON_PERSON_QUERY_MODES),
+    },
+    required=["role", "query_mode"],
+)
+
 
 META_SCHEMA_REGISTRY_V2: Dict[Tuple[str, str], Dict[str, Any]] = {
     # UBND
@@ -710,14 +733,56 @@ META_SCHEMA_REGISTRY_V2: Dict[Tuple[str, str], Dict[str, Any]] = {
     (ORG_CONG_DOAN, INTENT_PHAN_ANH_KIEN_NGHI): CONG_DOAN_FEEDBACK_SCHEMA,
 }
 
+META_SCHEMA_REGISTRY_FALLBACK: Dict[Tuple[str, str], Dict[str, Any]] = {
+    # UBND
+    (ORG_UBND, INTENT_TRA_CUU_THONG_TIN): UBND_INFO_SCHEMA,
+    (ORG_UBND, INTENT_HOI_NHAN_SU): GLOBAL_PERSON_SCHEMA,
+    (ORG_UBND, INTENT_HOI_THU_TUC): UBND_PROCEDURE_SCHEMA,
+    (ORG_UBND, INTENT_PHAN_ANH_KIEN_NGHI): UBND_FEEDBACK_SCHEMA,
+
+    # Đảng ủy
+    (ORG_DANG_UY, INTENT_TRA_CUU_THONG_TIN): DANG_UY_INFO_SCHEMA,
+    (ORG_DANG_UY, INTENT_HOI_NHAN_SU): GLOBAL_PERSON_SCHEMA,
+    (ORG_DANG_UY, INTENT_SINH_HOAT_DANG): DANG_UY_ACTIVITY_SCHEMA,
+
+    # Đoàn Thanh niên
+    (ORG_DOAN_THANH_NIEN, INTENT_TRA_CUU_THONG_TIN): DOAN_INFO_SCHEMA_V2,
+    (ORG_DOAN_THANH_NIEN, INTENT_HOI_NHAN_SU): GLOBAL_PERSON_SCHEMA,
+    (ORG_DOAN_THANH_NIEN, INTENT_QUYEN_LOI_HO_TRO): DOAN_BENEFIT_SCHEMA_V2,
+    (ORG_DOAN_THANH_NIEN, INTENT_THAM_GIA_TO_CHUC): DOAN_JOIN_SCHEMA_V2,
+
+    # Hội Phụ nữ
+    (ORG_HOI_PHU_NU, INTENT_TRA_CUU_THONG_TIN): HPN_INFO_SCHEMA_V2,
+    (ORG_HOI_PHU_NU, INTENT_HOI_NHAN_SU): GLOBAL_PERSON_SCHEMA,
+    (ORG_HOI_PHU_NU, INTENT_QUYEN_LOI_HO_TRO): HPN_BENEFIT_SCHEMA_V2,
+    (ORG_HOI_PHU_NU, INTENT_THAM_GIA_TO_CHUC): HPN_JOIN_SCHEMA_V2,
+
+    # MTTQ
+    (ORG_MTTQ, INTENT_TRA_CUU_THONG_TIN): MTTQ_INFO_SCHEMA_V2,
+    (ORG_MTTQ, INTENT_HOI_NHAN_SU): GLOBAL_PERSON_SCHEMA,
+    (ORG_MTTQ, INTENT_QUYEN_LOI_HO_TRO): MTTQ_BENEFIT_SCHEMA_V2,
+    (ORG_MTTQ, INTENT_THAM_GIA_TO_CHUC): MTTQ_JOIN_SCHEMA_V2,
+
+    # Công đoàn
+    (ORG_CONG_DOAN, INTENT_TRA_CUU_THONG_TIN): CONG_DOAN_INFO_SCHEMA_V2,
+    (ORG_CONG_DOAN, INTENT_HOI_NHAN_SU): GLOBAL_PERSON_SCHEMA,
+    (ORG_CONG_DOAN, INTENT_QUYEN_LOI_HO_TRO): CONG_DOAN_BENEFIT_SCHEMA_V2,
+    (ORG_CONG_DOAN, INTENT_THAM_GIA_TO_CHUC): CONG_DOAN_JOIN_SCHEMA_V2,
+    (ORG_CONG_DOAN, INTENT_PHAN_ANH_KIEN_NGHI): CONG_DOAN_FEEDBACK_SCHEMA,
+}
+
 def get_allowed_intents(org_type: str) -> List[str]:
     return list(ORG_INTENTS.get(org_type, []))
 
-def get_meta_schema(org_type: str, intent: str) -> Optional[Dict[str, Any]]:
+def get_meta_schema(org_type: str, intent: str, org_type_is_fallback: bool = False) -> Optional[Dict[str, Any]]:
+    if org_type_is_fallback:
+        schema = META_SCHEMA_REGISTRY_FALLBACK.get((org_type, intent))
+        return deepcopy(schema) if schema else None
+    
     schema = META_SCHEMA_REGISTRY_V2.get((org_type, intent))
     return deepcopy(schema) if schema else None
 
-def get_meta_schema_prompt(org_type: str, intent: Optional[str] = None) -> Dict[str, Any]:
+def get_meta_schema_prompt(org_type: str, intent: Optional[str] = None, org_type_is_fallback: bool = False) -> Dict[str, Any]:
     """
     Return a compact prompt-friendly schema.
 
@@ -731,7 +796,7 @@ def get_meta_schema_prompt(org_type: str, intent: Optional[str] = None) -> Dict[
         if intent not in ORG_INTENTS.get(org_type, []):
             raise ValueError(f"Intent '{intent}' is not allowed for org_type '{org_type}'")
 
-        schema = get_meta_schema(org_type, intent)
+        schema = get_meta_schema(org_type, intent, org_type_is_fallback)
         if not schema:
             raise ValueError(f"No meta schema found for ({org_type}, {intent})")
 
@@ -744,7 +809,7 @@ def get_meta_schema_prompt(org_type: str, intent: Optional[str] = None) -> Dict[
     allowed_intents = get_allowed_intents(org_type)
     schemas_by_intent: Dict[str, Dict[str, Any]] = {}
     for allowed_intent in allowed_intents:
-        schema = get_meta_schema(org_type, allowed_intent)
+        schema = get_meta_schema(org_type, allowed_intent, org_type_is_fallback)
         if schema:
             schemas_by_intent[allowed_intent] = _make_meta_prompt_schema(schema)
 
@@ -758,8 +823,8 @@ def get_meta_schema_prompt(org_type: str, intent: Optional[str] = None) -> Dict[
 
 
 
-def build_meta_extraction_messages(query: str, org_type: str, intent: str) -> List[dict]:
-    schema_payload = get_meta_schema_prompt(org_type, intent=intent)
+def build_meta_extraction_messages(query: str, org_type: str, intent: str, org_type_is_fallback: bool = False) -> List[dict]:
+    schema_payload = get_meta_schema_prompt(org_type, intent=intent, org_type_is_fallback=org_type_is_fallback)
 
     system_prompt = """
 Bạn là bộ trích xuất metadata cho chatbot hành chính/tổ chức.
@@ -828,8 +893,8 @@ Chỉ trả JSON.
     return messages
 
 
-def build_intent_and_meta_extraction_messages(query: str, org_type: str) -> List[dict]:
-    schema_payload = get_meta_schema_prompt(org_type, intent=None)
+def build_intent_and_meta_extraction_messages(query: str, org_type: str, org_type_is_fallback: bool = False) -> List[dict]:
+    schema_payload = get_meta_schema_prompt(org_type, intent=None, org_type_is_fallback=org_type_is_fallback)
 
     system_prompt = """
 Bạn là bộ trích xuất intent và metadata cho chatbot hành chính/tổ chức.
@@ -902,9 +967,9 @@ Chỉ trả JSON.
         {"role": "user", "content": user_prompt},
     ]
 
-def classify_meta_with_intent(query: str, org_type: str, intent: str):
+def classify_meta_with_intent(query: str, org_type: str, intent: str, org_type_is_fallback: bool = False):
 
-    context = build_meta_extraction_messages(query, org_type, intent)
+    context = build_meta_extraction_messages(query, org_type, intent, org_type_is_fallback)
 
     # print(f"Câu hỏi 1 -> token: {count_tokens(context)}")
 
@@ -931,9 +996,9 @@ def classify_meta_with_intent(query: str, org_type: str, intent: str):
 
     return parsed
 
-def classify_meta_without_intent(query: str, org_type: str):
+def classify_meta_without_intent(query: str, org_type: str, org_type_is_fallback: bool = False):
 
-    context = build_intent_and_meta_extraction_messages(query, org_type)
+    context = build_intent_and_meta_extraction_messages(query, org_type, org_type_is_fallback)
 
     # print(f"Câu hỏi 1 -> token: {count_tokens(context)}")
 

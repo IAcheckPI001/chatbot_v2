@@ -524,10 +524,16 @@ Câu hỏi:
 """
     prompt = _render_prompt_template(prompt_template, default_prompt, query=query)
     try:
-        response = llm.invoke(prompt)
-        raw = response.content.strip()
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            response_format={"type": "json_object"},  # 🔥 ép JSO
+        )
+        content = response.choices[0].message.content
 
-        data = json.loads(raw)
+        data = json.loads(content)
+
         subject = data.get("subject")
         return subject
 
