@@ -229,7 +229,6 @@ LOW_PRECISION_INTENTS = {
 
 INTENT_KEYWORDS_COMMON = {
     "tra_cuu_thong_tin": [
-        "gioi thieu",
         "tong quan",
         "la to chuc gi",
         "chuc nang",
@@ -245,8 +244,6 @@ INTENT_KEYWORDS_COMMON = {
         "co cau",
         "bo phan",
         "thong tin",
-        "lam gi",
-        "lam nhung viec gi",
         "hoat dong gi",
         "thong tin chung",
         "doi tuong",
@@ -647,7 +644,6 @@ PHRASE_DEFS = [
     {"text": "hoc nghi quyet", "kind": "intent", "label": "sinh_hoat_dang", "priority": 90},
     {"text": "nghi quyet", "kind": "intent", "label": "sinh_hoat_dang", "priority": 70},
 
-    {"text": "gioi thieu", "kind": "intent", "label": "tra_cuu_thong_tin", "priority": 40},
     {"text": "tong quan", "kind": "intent", "label": "tra_cuu_thong_tin", "priority": 40},
     {"text": "la gi", "kind": "intent", "label": "tra_cuu_thong_tin", "priority": 25},
     {"text": "la to chuc gi", "kind": "intent", "label": "tra_cuu_thong_tin", "priority": 55},

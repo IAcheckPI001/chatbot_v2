@@ -206,7 +206,11 @@ const CHUNK_EDIT_SCHEMA_OPTIONS: Record<string, ChunkSchemaOptions> = {
         primaryOptions: ['quyen_loi_doan_vien',
         'nghia_vu_doan_vien',
         'ho_tro_doan_vien',
-        'chuong_trinh_ho_tro_thanh_nien'],
+        'chuong_trinh_ho_tro_thanh_nien',
+        'ren_luyen_doan_vien',
+        'danh_gia_xep_loai_doan_vien',
+        'cong_trinh_thanh_nien',
+        'doan_vien_uu_tu'],
         modeOptions: ['info', 'list', 'condition', 'benefit_scope', 'fee'],
       },
       tham_gia_to_chuc: {
@@ -324,7 +328,8 @@ const CHUNK_EDIT_SCHEMA_OPTIONS: Record<string, ChunkSchemaOptions> = {
       tham_gia_to_chuc: {
         primaryOptions: ['gia_nhap_thanh_vien_mttq',
         'thoi_lam_thanh_vien_mttq',
-        'tham_gia_hoat_dong_mat_tran'],
+        'tham_gia_hoat_dong_mat_tran',
+        'kien_toan_nhan_su_mttq'],
         modeOptions: ['procedure',
         'condition',
         'document_required',
@@ -1010,7 +1015,7 @@ async function sendMessage() {
 
   try {
     clearLogs()
-    const res = await fetch(`${API_BASE_URL}/chat-stream-v2`, {
+    const res = await fetch(`${API_BASE_URL}/chat-stream-v3`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3091,8 +3096,7 @@ onMounted(() => {
               <th class="col-index">intent_type</th>
               <th class="col-index">entity</th>
               <th class="col-index">fields</th>
-              <!-- <th class="col-index">procedure_action</th>
-              <th class="col-index">special_contexts</th> -->
+              <!-- <th class="col-index">special_contexts</th> -->
               <!-- <th class="col-index">Keywords</th> -->
               <th class="col-index">Actions</th>
             </tr>
@@ -3201,9 +3205,7 @@ onMounted(() => {
                 </div>
                 <span v-else>{{ item.subject || '-' }}</span>
               </td>
-              <td v-if="!isOrganizationMode" class="col-index">
-                <span>{{ getChunkTenantScope(item) }}</span>
-              </td>
+              
               <td v-if="isOrganizationMode" class="col-index">
                 <div v-if="editingId === item.id" class="edit-input-wrapper">
                   <select
@@ -3271,6 +3273,9 @@ onMounted(() => {
                   <span v-else>-</span>
                 </div>
               </td>
+              <!-- <td v-if="isOrganizationMode" class="col-index">
+                <span>{{ getChunkTenantScope(item) }}</span>
+              </td> -->
               <!-- <td class="col-index">
                 <div v-if="editingId === item.id" class="edit-input-wrapper sc-editor">
                   <div v-if="editingData.procedure_action" class="sc-badge-group sc-edit-tags">
@@ -3558,6 +3563,14 @@ onMounted(() => {
               <option value="cong_doan">Công đoàn</option>
               <option value="mttq">Mặt trận tổ quốc</option>
               <option value="dang_uy">Đảng ủy</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Scope:</label>
+            <select v-model="newChunk.scope" class="filter-select">
+              <option value="xa_phuong">Xã/Phường</option>
+              <option value="tinh_thanh">Tỉnh/Thành</option>
+              <option value="quoc_gia">Quốc gia</option>
             </select>
           </div>
           <div v-if="newChunk.procedure_action == 'ubnd'">

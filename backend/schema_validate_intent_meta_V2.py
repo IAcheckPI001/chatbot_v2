@@ -360,6 +360,18 @@ CONG_DOAN_PERSON_ROLES_V2 = [
     "lanh_dao_cong_doan"
 ]
 
+# QUOC_GIA_ROLES = [
+#     "tong_bi_thu",
+#     "bi_thu_trung_uong",
+#     "pho_thu_tuong",
+#     "thuong_truc_ban_bi_thu",
+#     "chanh_an_nhan_dan_toi_cao",
+#     "chu_tich_nuoc",
+#     "pho_chu_tich_nuoc",
+#     "thu_tuong",
+#     "chu_tich_quoc_hoi"
+# ]
+
 ALL_PERSON_ROLES = sorted(set(
     UBND_PERSON_ROLES
     + DANG_UY_PERSON_ROLES
@@ -373,13 +385,16 @@ ALL_PERSON_ROLES = sorted(set(
 # V2 - BENEFIT TOPICS
 # =========================================================
 
-
-
 DOAN_BENEFIT_TOPICS_V2 = [
     "quyen_loi_doan_vien",
     "nghia_vu_doan_vien",
     "ho_tro_doan_vien",
     "chuong_trinh_ho_tro_thanh_nien",
+    "ren_luyen_doan_vien",
+    "danh_gia_xep_loai_doan_vien",
+    "cong_trinh_thanh_nien",
+    "doan_vien_uu_tu",
+    "gioi_thieu_doan_vien_uu_tu_vao_dang"
 ]
 
 HPN_BENEFIT_TOPICS_V2 = [
@@ -856,7 +871,7 @@ QUY TẮC BẮT BUỘC
   "intent": "...",
   "meta": {...},
   "confidence": 0.0,
-  "needs_clarification": false
+  "level": "commune" | "province" | "nation",
 }
 """.strip()
 
@@ -924,7 +939,7 @@ QUY TẮC BẮT BUỘC
   "intent": "...",
   "meta": {...},
   "confidence": 0.0,
-  "needs_clarification": false
+  "level": "commune" | "province" | "nation",
 }
 """.strip()
 

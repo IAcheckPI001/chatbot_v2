@@ -3179,6 +3179,7 @@ def chat_stream_v2():
         
         tenant_ctx = get_resolved_tenant_from_memory(tenant_code)
         current_tenance = tenant_ctx.get("current") if tenant_ctx else None
+        parent_tenance = tenant_ctx.get("parent") if tenant_ctx and tenant_ctx.get("parent") else None
         domain_org_type = current_tenance.get("domain_org_type") if current_tenance else None
         logger.info(f"Org current type: {tenant_ctx}")
         log_stage("tenant_context_loaded", has_domain_org=bool(domain_org_type))
@@ -3223,9 +3224,11 @@ def chat_stream_v2():
         else:
             meta = classify_meta_without_intent_cached(user_message, org_type, normalized_query, org_type_is_fallback)
             intent = meta.get("intent") or intent
+            level = meta.get("level")
+            score = meta.get("confidence")
             log_stage("Intent (LLM extracting)", intent=intent)
-            yield f"data: {json.dumps({'log': f'Intent (LLM extracting): {intent}'})}\n\n"
-        if (org_type, intent) not in SCORING_CONFIG: 
+            yield f"data: {json.dumps({'log': f'Intent (LLM extracting): {intent}, Level: {level}, Score: {score}'})}\n\n"
+        if (org_type, intent) not in SCORING_CONFIG:
             return support_content
     
         cfg = SCORING_CONFIG[(org_type, intent)]
@@ -3707,6 +3710,453 @@ def chat_stream_v2():
         # yield from flush_logs(force=True)
         # yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
         # return
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"  # cực quan trọng nếu có nginx
+        }
+    )   
+
+@app.route('/api/chat-stream-v3', methods=['POST'])
+def chat_stream_v3():
+
+    def generate():
+        request_started_at = time.perf_counter()
+
+        # ✅ LẤY DATA TRƯỚC
+        data = request.json or {}
+        session_id = data.get("session_id")
+        user_message = data.get('question', '').strip()
+        origin_mess = user_message
+        logger.info(f"Câu hỏi người dùng: {user_message}")
+
+        # Hỗ trợ cả tenant_id và tenant_code
+        tenant_id = data.get("tenant_id")
+        raw_tenant_code = data.get("tenant_code")
+        tenant_code, err = ensure_tenant_code(tenant_id=tenant_id, tenant_code=raw_tenant_code)
+        log_data = {}
+        logger.info(f"Tenant id: {tenant_id}")
+        logger.info(f"Tenant code: {tenant_code}")
+        
+        help_content = get_default_answer("help")
+        # out_of_score_content = get_default_answer("out_of_scope")
+        thanks_content = get_default_answer("thanks")
+        phan_nan_content = get_default_answer("complaint")
+        xuc_pham_content = get_default_answer("abuse")
+        banned_replies = get_default_answer("banned")
+        support_content = get_default_answer("support")
+
+        LOG_FLUSH_INTERVAL_SECONDS = 0.08
+        LOG_BUFFER_MAX = 64
+        pending_logs = []
+        last_log_flush_at = time.perf_counter()
+
+        def flush_logs(force=False):
+            nonlocal last_log_flush_at
+            if not pending_logs:
+                return
+
+            now = time.perf_counter()
+            if not force and (now - last_log_flush_at) < LOG_FLUSH_INTERVAL_SECONDS:
+                return
+
+            batch = "\n".join(pending_logs)
+            pending_logs.clear()
+            last_log_flush_at = now
+            yield f"data: {json.dumps({'thought': batch}, ensure_ascii=False)}\n\n"
+
+        def emit_log(message, force=False):
+            if message is None:
+                return
+
+            if len(pending_logs) >= LOG_BUFFER_MAX:
+                pending_logs.pop(0)
+            pending_logs.append(str(message))
+            yield from flush_logs(force=force)
+
+        if err:
+            total_ms = (time.perf_counter() - request_started_at) * 1000
+            logger.info(
+                "[perf][chat_stream_v2] session=%s tenant=%s stage=tenant_resolve_failed total_ms=%.2f err=%s",
+                session_id,
+                tenant_code,
+                total_ms,
+                err,
+            )
+            message = err
+            for token in chunk_text(message):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+
+        if not tenant_exists(tenant_code):
+            total_ms = (time.perf_counter() - request_started_at) * 1000
+            logger.info(
+                "[perf][chat_stream_v2] session=%s tenant=%s stage=tenant_not_found total_ms=%.2f",
+                session_id,
+                tenant_code,
+                total_ms,
+            )
+            message = "Tenant được chọn không tồn tại trong hệ thống."
+            for token in chunk_text(message):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+        
+        # yield from emit_log(f"Đã nhận câu hỏi anh/chị: {origin_mess}")
+
+        start_flow = request_started_at
+        stage_started_at = start_flow
+
+        def log_stage(stage: str, **extra):
+            nonlocal stage_started_at
+            now = time.perf_counter()
+            step_ms = (now - stage_started_at) * 1000
+            total_ms = (now - start_flow) * 1000
+            extras = " ".join(f"{k}={v}" for k, v in extra.items()) if extra else ""
+            if extras:
+                logger.info(
+                    "[perf][chat_stream_v2] session=%s tenant=%s stage=%s step_ms=%.2f total_ms=%.2f %s",
+                    session_id,
+                    tenant_code,
+                    stage,
+                    step_ms,
+                    total_ms,
+                    extras,
+                )
+            else:
+                logger.info(
+                    "[perf][chat_stream_v2] session=%s tenant=%s stage=%s step_ms=%.2f total_ms=%.2f",
+                    session_id,
+                    tenant_code,
+                    stage,
+                    step_ms,
+                    total_ms,
+                )
+            stage_started_at = now
+
+        ## --------- Bước 1: Rule-based từ tắt, viết tắt
+        
+        result = resolver.process(user_message)
+        user_message = result["expanded"]
+        normalized_query = result["normalized"]
+
+        # logger.info(f"Câu hỏi sau khi xử rule-base từ tắt: {user_message}")
+        log_stage("Normalized text", user_message=user_message)
+
+        # yield from emit_log("Đang xử lý nội dung câu hỏi\n")
+
+        matched_keyword = find_blocked_keyword(normalized_query) or None
+        fast_check = classify_category_fast_cached(normalized_query)
+
+        check_label = fast_check['label']
+        topic_label = fast_check["debug_hits"]
+        log_stage("fast_gate_classified", label=check_label, has_blocked_keyword=bool(matched_keyword))
+
+        if matched_keyword or check_label == "chu_de_cam":
+            # yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
+            banned_replies_stream = chunk_text(banned_replies)
+            for token in banned_replies_stream:
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            log_stage("banned_response_streamed", reason="matched_keyword" if matched_keyword else "fast_check")
+
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["raw_query"] = user_message
+            log_data["expanded_query"] = normalized_query
+            log_data["event_type"] = "banned_topic"
+            log_data["answer"]= banned_replies
+            log_data["reason"]= f"Nội dung có chứa từ khóa cấm: {matched_keyword}" if matched_keyword else f"Nội dung có chứa chủ đề cấm: {topic_label}"
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+
+        if check_label == "tuong_tac":
+            interaction_subject = fast_check['interaction_type']
+
+            # yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
+
+            if interaction_subject in ["hoi_kha_nang_bot", "chao_hoi"]:
+                answer_stream = chunk_text(help_content)
+                answer = help_content
+                event_type = "normal"
+            if interaction_subject == "cam_on_tam_biet":
+                answer_stream = chunk_text(thanks_content)
+                answer = thanks_content
+                event_type = "normal"
+            if interaction_subject == "phan_nan":
+                answer_stream = chunk_text(phan_nan_content)
+                answer = phan_nan_content
+                event_type = "complaint"
+            if interaction_subject == "xuc_pham":
+                answer_stream = chunk_text(xuc_pham_content)
+                answer = xuc_pham_content
+                event_type = "banned_topic"
+
+            for token in answer_stream:
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            log_stage("interaction_response_streamed", interaction_subject=interaction_subject, event_type=event_type)
+
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["tenant_code"] = tenant_code
+            log_data["raw_query"] = origin_mess
+            log_data["expanded_query"] = user_message
+            log_data["answer"]= answer
+            log_data["event_type"] = event_type
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+
+        try:
+            prompt_templates = get_active_prompt_templates_map_cached()
+        except Exception as e:
+            prompt_templates = {}
+            yield from emit_log(f"Không thể tải prompt templates: {str(e)}", force=True)
+
+        history_rewrite_prompt = pick_prompt_template(prompt_templates, "history_rewrite")
+        # classify_category_prompt = pick_prompt_template(prompt_templates, "classify_category")
+        # classify_subject_procedure_prompt = pick_prompt_template(prompt_templates, "classify_subject_procedure")
+        # answer_procedure_prompt = pick_prompt_template(prompt_templates, "answer_procedure")
+        # classify_subject_qa_prompt = pick_prompt_template(prompt_templates, "classify_subject_QA")
+        # classify_subject_tuong_tac_prompt = pick_prompt_template(prompt_templates, "classify_subject_tuong_tac")
+        # classify_subject_phan_anh_prompt = pick_prompt_template(prompt_templates, "classify_subject_phan_anh")
+        # answer_qa_prompt = pick_prompt_template(prompt_templates, "answer_QA")
+
+        # history_data = get_recent_session_history_cached(session_id, tenant_code, limit=2)
+        history_data = None
+        log_stage("session_history_loaded", has_history=bool(history_data), history_items=len(history_data or []))
+        
+        logger.info(f"Câu hỏi người dùng: {origin_mess}")
+        if not history_data:
+            logger.info(f"Chuẩn hóa không có lịch sử với {user_message}")
+            start = time.perf_counter()
+            user_message = rewrite_query(user_message, prompt_template=None)
+
+            normalized_query = normalize_text(user_message)
+            end = time.perf_counter()
+            yield f"data: {json.dumps({'log': f'{(end - start):.2f}s Câu hỏi sau khi viết lại (không có lịch sử): {user_message}'})}\n\n"
+            log_stage("rewrite_query_no_history")
+
+        if history_data:
+            last_question = history_data[0]["expanded_query"]
+            # logger.info(f"Câu hỏi trước: {last_question}")
+
+            user_message = rewrite_query_history(user_message, last_question, prompt_template=history_rewrite_prompt)
+            normalized_query = normalize_text(user_message)
+            yield f"data: {json.dumps({'log': f'Câu hỏi sau khi viết lại (Có lịch sử): {user_message}'})}\n\n"
+            log_stage("rewrite_query_with_history")
+        
+        tenant_ctx = get_resolved_tenant_from_memory(tenant_code)
+        current_tenance = tenant_ctx.get("current") if tenant_ctx else None
+        parent_tenance = tenant_ctx.get("parent") if tenant_ctx and tenant_ctx.get("parent") else None
+        tenant_code_cur = current_tenance.get("id") if current_tenance else None
+        tenant_code_parent = parent_tenance.get("id") if parent_tenance else None
+        logger.info(f"{current_tenance}, {parent_tenance}")
+        tenances = [tenant_code_cur, tenant_code_parent, None]
+        domain_org_type = current_tenance.get("domain_org_type") if current_tenance else None
+        logger.info(f"Org current type: {tenances}")
+        log_stage("tenant_context_loaded", has_domain_org=bool(domain_org_type))
+        yield f"data: {json.dumps({'log': f'tenances: {tenances}'})}\n\n"
+
+        scope = extract_scope(user_message)
+        if scope in ["tinh_thanh","quoc_gia"]:
+            tenances = [None]
+            if scope == "tinh_thanh":
+                tenances = [tenant_code_parent] 
+
+        logger.info(f"Scope extracted: {scope}")
+        
+        # result = resolve_unit_type(
+        #     query=user_message,
+        #     scope=scope,
+        #     tenant_ctx=tenant_ctx
+        # )
+
+        # logger.info(f"Org type after resolve_unit_type: {result}")
+
+        # resolved_tenant_code = resolve_target_tenant_code_cached(tenant_code, scope)
+        # if resolved_tenant_code is None and scope == "xa_phuong":
+        #     resolved_tenant_code = tenant_code
+        # tenant_code = resolved_tenant_code
+
+        extract_meta = detect_organization_intent_fast_v7_cached(normalized_query)
+
+        org_type = extract_meta['organization_type']
+        org_type_is_fallback = False
+        if org_type is None:
+            org_type = domain_org_type
+            org_type_is_fallback = True
+            yield f"data: {json.dumps({'log': f'Organization default fallback: {org_type}'})}\n\n"
+            log_stage("org_fallback_applied", fallback_org=org_type)
+        
+        # TARGET = {"mttq", "doan_thanh_nien", "hoi_phu_nu", "dang_uy", "cong_doan"}
+        logger.info(f"is_fallback: {org_type_is_fallback}")
+        # if org_type in TARGET:
+        intent = extract_meta['intent']
+        log_stage("Intent (rule-base)", intent=intent)
+
+        yield f"data: {json.dumps({'log': f'Organization (rule-base): {org_type}, Intent (rule-base): {intent}'})}\n\n"
+
+        if intent:
+            meta = classify_meta_with_intent(user_message, org_type, intent, org_type_is_fallback)
+        else:
+            meta = classify_meta_without_intent_cached(user_message, org_type, normalized_query, org_type_is_fallback)
+            intent = meta.get("intent") or intent
+            level = meta.get("level")
+            if len(tenances) != 1:
+                if level == "nation":
+                    tenances = [None]
+                elif level == "province":
+                    tenances = [tenant_code_parent]
+            score = meta.get("confidence")
+            log_stage("Intent (LLM extracting)", intent=intent)
+            yield f"data: {json.dumps({'log': f'Intent (LLM extracting): {intent}, Level: {level}, Score: {score}'})}\n\n"
+        if (org_type, intent) not in SCORING_CONFIG:
+            for token in chunk_text(support_content):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+    
+        cfg = SCORING_CONFIG[(org_type, intent)]
+        log_stage("Scoring Config", score_config=cfg)
+
+        fields = meta.get("meta") or {}
+        meta_payload = build_meta_payload(intent, fields)
+        primary_values = meta_payload["primary_values"]
+        mode_values = meta_payload["mode_values"]
+        yield f"data: {json.dumps({'log': f'Primary value: {primary_values}, mode values: {mode_values}'})}\n\n"
+
+        log_stage("Extracted Meta", primary_value=primary_values, mode_values=mode_values)
+        # all_chunks = []
+
+        embedding_query = get_embedding_cached(user_message, normalized_query)
+
+        # for tenant in tenances:
+        #     try:
+        #         response = supabase.rpc(
+        #             "search_documents_meta_generic",
+        #             {
+        #                 "p_query_format": normalized_query,
+        #                 "p_query_embedding": embedding_query,
+        #                 "p_tenant": tenant,
+        #                 "p_org_type": None if org_type_is_fallback else org_type,
+        #                 "p_intent": intent,
+
+        #                 "p_primary_values": primary_values,
+        #                 "p_mode_values": mode_values,
+
+        #                 "p_w_intent": cfg["w_intent"],
+        #                 "p_w_primary": cfg["w_primary"],
+        #                 "p_w_mode": cfg["w_mode"],
+        #                 "p_meta_cap": cfg["meta_cap"],
+
+        #                 "p_limit": 3,
+        #             }
+        #         ).execute()
+        #         # chunks = response.data or []
+        #         if response.data:
+        #             all_chunks.extend(response.data)
+        #     except Exception as e:
+        #         logger.error(f"[RPC ERROR] search_documents_meta_generic failed: {str(e)}", exc_info=True)
+        #         yield f"data: {json.dumps({'log': f'Lỗi tìm kiếm tài liệu: {str(e)}'})}\n\n"
+        #         for token in chunk_text(support_content):
+        #             yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        #         yield from flush_logs(force=True)
+        #         yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+        #         return
+
+        try:
+            response = supabase.rpc(
+                "search_documents_meta_generic_v2",
+                {
+                    "p_query_format": normalized_query,
+                    "p_query_embedding": embedding_query,
+
+                    "p_tenants": tenances,
+
+                    "p_org_type": None if org_type_is_fallback else org_type,
+                    "p_intent": intent,
+
+                    "p_primary_values": primary_values,
+                    "p_mode_values": mode_values,
+
+                    "p_w_intent": cfg["w_intent"],
+                    "p_w_primary": cfg["w_primary"],
+                    "p_w_mode": cfg["w_mode"],
+                    "p_meta_cap": cfg["meta_cap"],
+
+                    "p_limit": 5,
+                    "p_per_tenant_limit": 30,
+                }
+            ).execute()
+            all_chunks = response.data or []
+        except Exception as e:
+            logger.error(f"[RPC ERROR] search_documents_meta_generic failed: {str(e)}", exc_info=True)
+            yield f"data: {json.dumps({'log': f'Lỗi tìm kiếm tài liệu: {str(e)}'})}\n\n"
+            for token in chunk_text(support_content):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+
+        if not all_chunks:
+            for token in chunk_text(support_content):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
+        # top_score = chunks[0]["confidence_score"] if chunks else 0
+        # logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
+
+        # if top_score < 0.2:
+        #     for token in chunk_text(support_content):
+        #         yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+        #     end = time.perf_counter()
+        #     duration = (end - start_flow) * 1000 
+        #     log_data["tenant_code"] = tenant_code
+        #     log_data["raw_query"] = origin_mess
+        #     log_data["expanded_query"] = user_message
+        #     log_data["answer"]= support_content
+        #     log_data["event_type"] = "low_confidence"
+        #     log_data["alias_score"]= top_chunk.get("alias_score", 0)
+        #     log_data["document_score"]= top_score
+        #     log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
+        #     log_data["session_chat"]= session_id
+        #     log_data["response_time_ms"]= round(duration / 1000,2)
+        #     enqueue_log(log_data)
+        #     yield from flush_logs(force=True)
+        #     yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+        #     return
+
+        context = "\n\n".join(
+            f"**Tài liệu {i+1}**: ({chunk.get('confidence_score', 0):.2f} điểm)\n{chunk['text_content']}"
+            for i, chunk in enumerate(all_chunks)
+        )
+
+        content_new_flow_stream = chunk_text(context)
+        for token in content_new_flow_stream:
+            yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        
+        yield from flush_logs(force=True)
+        yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+        return
+       
 
     return Response(
         stream_with_context(generate()),
