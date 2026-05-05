@@ -1231,7 +1231,6 @@ def extract_intent_by_organization(
 # =========================================================
 
 def detect_organization_intent_fast_v7(q_norm: str) -> dict:
-    q_norm = normalize_text(q_norm)
 
     raw_matches = find_phrase_matches(q_norm)
     resolved_matches = resolve_phrase_matches(raw_matches)

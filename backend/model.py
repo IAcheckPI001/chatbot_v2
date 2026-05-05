@@ -513,9 +513,7 @@ Câu hỏi:
 
 
 def classify_category(query: str, prompt_template: str = None):
-    default_prompt = f"""Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã.
-
-NHIỆM VỤ: Xác định category của câu hỏi.
+    default_prompt = f"""NHIỆM VỤ: Xác định category của câu hỏi.
 
 CATEGORY (chỉ chọn 1):
 
@@ -561,9 +559,12 @@ Câu hỏi:
     try:
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
-            messages=prompt,
+            messages=[
+                {"role": "system", "content": "Bạn là bộ phân loại câu hỏi cho chatbot hành chính cấp phường/xã."},
+                {"role": "user", "content": prompt}
+            ],
             temperature=0.0,
-            response_format={"type": "json_object"},  # 🔥 ép JSON
+            response_format={"type": "json_object"},
         )
 
         content = response.choices[0].message.content

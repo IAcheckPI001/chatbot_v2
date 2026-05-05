@@ -151,7 +151,7 @@ DANH SÁCH subject HỢP LỆ
 - bao_hiem_an_sinh (BHXH, BHYT, hộ nghèo, trợ cấp xã hội, nhà ở xã hội, người vô gia cư, mai táng phí)
 - y_te (an toàn thực phẩm, trang thiết bị y tế, an toàn thực phẩm, dịch bệnh)
 - tai_nguyen_moi_truong
-- cong_thuong (rượu, thuốc lá)
+- cong_thuong (bán rượu, thuốc lá)
 - van_hoa_the_thao_du_lich
 - tai_chinh_thue_phi
 - khoa_hoc_cong_nghe

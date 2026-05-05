@@ -3927,12 +3927,12 @@ def chat_stream_v3():
 
         history_rewrite_prompt = pick_prompt_template(prompt_templates, "history_rewrite")
         # classify_category_prompt = pick_prompt_template(prompt_templates, "classify_category")
-        # classify_subject_procedure_prompt = pick_prompt_template(prompt_templates, "classify_subject_procedure")
-        # answer_procedure_prompt = pick_prompt_template(prompt_templates, "answer_procedure")
+        classify_subject_procedure_prompt = pick_prompt_template(prompt_templates, "classify_subject_procedure")
+        answer_procedure_prompt = pick_prompt_template(prompt_templates, "answer_procedure")
         # classify_subject_qa_prompt = pick_prompt_template(prompt_templates, "classify_subject_QA")
         # classify_subject_tuong_tac_prompt = pick_prompt_template(prompt_templates, "classify_subject_tuong_tac")
         # classify_subject_phan_anh_prompt = pick_prompt_template(prompt_templates, "classify_subject_phan_anh")
-        # answer_qa_prompt = pick_prompt_template(prompt_templates, "answer_QA")
+        answer_qa_prompt = pick_prompt_template(prompt_templates, "answer_QA")
 
         # history_data = get_recent_session_history_cached(session_id, tenant_code, limit=2)
         history_data = None
@@ -4040,8 +4040,201 @@ def chat_stream_v3():
         mode_values = meta_payload["mode_values"]
         yield f"data: {json.dumps({'log': f'Primary value: {primary_values}, mode values: {mode_values}'})}\n\n"
 
-        log_stage("Extracted Meta", primary_value=primary_values, mode_values=mode_values)
-        # all_chunks = []
+        if intent == "hoi_thu_tuc":
+            yield from emit_log("=> Xác định nội dung thuộc thủ tục hành chính\n", force=True)
+            meta = classify_llm_procedure_cached(user_message, prompt_template=classify_subject_procedure_prompt)
+
+            if not meta or not isinstance(meta, dict):
+                message = "Không thể xác định thủ tục hành chính từ câu hỏi. Anh/chị vui lòng đặt câu hỏi rõ ràng hơn hoặc liên hệ trực tiếp để được hỗ trợ."
+                for token in chunk_text(message):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+
+            query_mode = meta.get("query_mode")
+
+            procedures = meta.get("unit") or []
+            if not procedures:
+                message = "Không thể xác định thủ tục hành chính từ câu hỏi. Anh/chị vui lòng đặt câu hỏi rõ ràng hơn hoặc liên hệ trực tiếp để được hỗ trợ."
+                for token in chunk_text(message):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+            
+            logger.info(f"=> Phân tích thủ tục : {meta}")
+
+            procedure_name = procedures[0].get("procedure")
+            if not procedure_name:
+                message = "Dạ anh/chị, hệ thống khác xác định được rõ tên thủ tục, anh/chị đang hỏi cụ thể về thủ tục nào ạ?"
+                for token in chunk_text(message):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+            
+            if query_mode == "single_procedure":
+                procedure_name = procedures[0].get("procedure")
+                primary_values = procedures[0].get("subject")
+                procedure_action = procedures[0].get("procedure_action")
+                special_contexts = procedures[0].get("special_contexts") or []
+                
+                mode_values = [
+                    x for x in (special_contexts or []) + [procedure_action]
+                    if x is not None
+                ]
+                yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}, primary_value: {primary_values}, mode_values: {mode_values}'})}\n\n"
+                try:
+                    response = supabase.rpc(
+                        "search_documents_meta_generic_v3",
+                        {
+                            "p_query_format": normalize_text(procedure_name),
+                            "p_query_embedding": get_embedding_cached(procedure_name, normalized_query),
+
+                            "p_tenants": [None],
+
+                            "p_org_type": None,
+                            "p_intent": intent,
+
+                            "p_primary_values": [primary_values],
+                            "p_mode_values": mode_values,
+
+                            "p_procedure": normalize_text(procedure_name),
+
+                            "p_w_intent": cfg["w_intent"],
+                            "p_w_primary": cfg["w_primary"],
+                            "p_w_mode": cfg["w_mode"],
+                            "p_meta_cap": cfg["meta_cap"],
+
+                            "p_limit": 3,
+                            "p_per_tenant_limit": 30,
+                        }
+                    ).execute()
+                    chunks = response.data or []
+                except Exception as e:
+                    logger.error(f"[RPC ERROR] search_documents_meta_generic failed: {str(e)}", exc_info=True)
+                    yield f"data: {json.dumps({'log': f'Lỗi tìm kiếm tài liệu: {str(e)}'})}\n\n"
+                    for token in chunk_text(support_content):
+                        yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                    yield from flush_logs(force=True)
+                    yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                    return
+            else:
+                chunk_response = []
+                for proc in procedures:
+                    procedure_name = proc['procedure']
+                    procedure_action = proc['procedure_action']
+                    primary_values = proc['subject']
+                    special_contexts = proc['special_contexts'] or []
+                    mode_values = [
+                        x for x in (special_contexts or []) + [procedure_action]
+                        if x is not None
+                    ]
+
+                    yield f"data: {json.dumps({'log': f'=> Tên thủ tục: {procedure_name}, primary_value: {primary_values}, mode_values: {mode_values}'})}\n\n"
+                    try:
+                        response = supabase.rpc(
+                            "search_documents_meta_generic_v3",
+                            {
+                                "p_query_format": normalize_text(procedure_name),
+                                "p_query_embedding": get_embedding_cached(procedure_name, normalized_query),
+
+                                "p_tenants": [None],
+
+                                "p_org_type": None,
+                                "p_intent": intent,
+
+                                "p_primary_values": [primary_values],
+                                "p_mode_values": mode_values,
+
+                                "p_procedure": normalize_text(procedure_name),
+
+                                "p_w_intent": cfg["w_intent"],
+                                "p_w_primary": cfg["w_primary"],
+                                "p_w_mode": cfg["w_mode"],
+                                "p_meta_cap": cfg["meta_cap"],
+
+                                "p_limit": 3,
+                                "p_per_tenant_limit": 30,
+                            }
+                        ).execute()
+                        chunks = response.data or []
+                        if chunks:
+                            chunk_response.append(chunks[0])
+                    except Exception as e:
+                        logger.error(f"[RPC ERROR] search_documents_meta_generic failed: {str(e)}", exc_info=True)
+                        yield f"data: {json.dumps({'log': f'Lỗi tìm kiếm tài liệu: {str(e)}'})}\n\n"
+                        for token in chunk_text(support_content):
+                            yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                        yield from flush_logs(force=True)
+                        yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                        return
+                chunks = chunk_response
+            if not chunks:
+                for token in chunk_text(support_content):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+
+            top_chunk = chunks[0] if chunks else {}
+            top_score = top_chunk.get("confidence_score", 0)
+            logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
+            logger.info(f"=> Chunks: {chunks}")
+
+            if top_score < 0.2:
+                for token in chunk_text(support_content):
+                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+                end = time.perf_counter()
+                duration = (end - start_flow) * 1000 
+                log_data["tenant_code"] = tenant_code
+                log_data["raw_query"] = origin_mess
+                log_data["expanded_query"] = user_message
+                log_data["answer"]= support_content
+                log_data["event_type"] = "low_confidence"
+                log_data["alias_score"]= top_chunk.get("alias_score", 0)
+                log_data["document_score"]= top_score
+                log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
+                log_data["session_chat"]= session_id
+                log_data["response_time_ms"]= round(duration / 1000,2)
+                enqueue_log(log_data)
+                yield from flush_logs(force=True)
+                yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+                return
+
+            context = "\n\n".join(
+                f"Tài liệu {i+1}:\n{chunk['text_content']}"
+                for i, chunk in enumerate(chunks)
+            )
+
+            yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
+
+            full_answer = ""
+            for token in llm_answer_procedure_stream(user_message, context, prompt_template=answer_procedure_prompt):
+                full_answer += token
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        
+            answer = full_answer
+
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["tenant_code"] = tenant_code
+            log_data["raw_query"] = origin_mess
+            log_data["expanded_query"] = user_message
+            log_data["answer"]= answer
+            log_data["event_type"] = "normal"
+            log_data["alias_score"]= top_chunk.get("alias_score", 0)
+            log_data["document_score"]= top_score
+            log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
 
         embedding_query = get_embedding_cached(user_message, normalized_query)
 
@@ -4081,14 +4274,14 @@ def chat_stream_v3():
 
         try:
             response = supabase.rpc(
-                "search_documents_meta_generic_v2",
+                "search_documents_meta_generic_v3",
                 {
                     "p_query_format": normalized_query,
                     "p_query_embedding": embedding_query,
 
                     "p_tenants": tenances,
 
-                    "p_org_type": None if org_type_is_fallback else org_type,
+                    "p_org_type": None,
                     "p_intent": intent,
 
                     "p_primary_values": primary_values,
@@ -4103,7 +4296,7 @@ def chat_stream_v3():
                     "p_per_tenant_limit": 30,
                 }
             ).execute()
-            all_chunks = response.data or []
+            chunks = response.data or []
         except Exception as e:
             logger.error(f"[RPC ERROR] search_documents_meta_generic failed: {str(e)}", exc_info=True)
             yield f"data: {json.dumps({'log': f'Lỗi tìm kiếm tài liệu: {str(e)}'})}\n\n"
@@ -4113,46 +4306,66 @@ def chat_stream_v3():
             yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
             return
 
-        if not all_chunks:
+        if not chunks:
             for token in chunk_text(support_content):
                 yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
 
             yield from flush_logs(force=True)
             yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
             return
-        # top_score = chunks[0]["confidence_score"] if chunks else 0
-        # logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
 
-        # if top_score < 0.2:
-        #     for token in chunk_text(support_content):
-        #         yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        top_chunk = chunks[0] if chunks else {}
+        top_score = top_chunk.get("confidence_score", 0)
+        logger.info(f"=> Điểm tài liệu tốt nhất: {top_score}")
+        logger.info(f"=> Chunks: {chunks}")
 
-        #     end = time.perf_counter()
-        #     duration = (end - start_flow) * 1000 
-        #     log_data["tenant_code"] = tenant_code
-        #     log_data["raw_query"] = origin_mess
-        #     log_data["expanded_query"] = user_message
-        #     log_data["answer"]= support_content
-        #     log_data["event_type"] = "low_confidence"
-        #     log_data["alias_score"]= top_chunk.get("alias_score", 0)
-        #     log_data["document_score"]= top_score
-        #     log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
-        #     log_data["session_chat"]= session_id
-        #     log_data["response_time_ms"]= round(duration / 1000,2)
-        #     enqueue_log(log_data)
-        #     yield from flush_logs(force=True)
-        #     yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
-        #     return
+        if top_score < 0.2:
+            for token in chunk_text(support_content):
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+
+            end = time.perf_counter()
+            duration = (end - start_flow) * 1000 
+            log_data["tenant_code"] = tenant_code
+            log_data["raw_query"] = origin_mess
+            log_data["expanded_query"] = user_message
+            log_data["answer"]= support_content
+            log_data["event_type"] = "low_confidence"
+            log_data["alias_score"]= top_chunk.get("alias_score", 0)
+            log_data["document_score"]= top_score
+            log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
+            log_data["session_chat"]= session_id
+            log_data["response_time_ms"]= round(duration / 1000,2)
+            enqueue_log(log_data)
+            yield from flush_logs(force=True)
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+            return
 
         context = "\n\n".join(
             f"**Tài liệu {i+1}**: ({chunk.get('confidence_score', 0):.2f} điểm)\n{chunk['text_content']}"
-            for i, chunk in enumerate(all_chunks)
+            for i, chunk in enumerate(chunks)
         )
 
-        content_new_flow_stream = chunk_text(context)
-        for token in content_new_flow_stream:
+        logger.info(f"Context for answer generation: {context}")
+
+        full_answer = ""
+        for token in llm_answer_stream(user_message, context, prompt_template=answer_qa_prompt):
+            full_answer += token
             yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
-        
+        answer = full_answer
+
+        end = time.perf_counter()
+        duration = (end - start_flow) * 1000 
+        log_data["tenant_code"] = tenant_code
+        log_data["raw_query"] = origin_mess
+        log_data["expanded_query"] = user_message
+        log_data["answer"]= answer
+        log_data["event_type"] = "normal"
+        log_data["alias_score"]= top_chunk.get("alias_score", 0)
+        log_data["document_score"]= top_score
+        log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
+        log_data["session_chat"]= session_id
+        log_data["response_time_ms"]= round(duration / 1000,2)
+        enqueue_log(log_data)
         yield from flush_logs(force=True)
         yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
         return
@@ -4311,10 +4524,13 @@ def chat_stream():
         logger.info(f"Normalized query: {user_message}")
         res = classify_v2_cached(normalized_query, PREPARED, tenant_code)
         category, subject = res["category"], res["subject"]
+        logger.info(f"Category được xác định(rule-base): {category}")
 
         if res["need_llm"]:
             category_llm = classify_llm_cached(user_message, prompt_template=classify_category_prompt)
             category = normalize_llm_label(category_llm)
+            logger.info(f"Category được xác định(llm): {category}")
+            logger.info(f"Prompt xác định category(llm): {classify_category_prompt}")
         
         logger.info(f"Category được xác định: {category}")
         yield f"data: {json.dumps({'log': f'Category được xác định: {category}'})}\n\n"

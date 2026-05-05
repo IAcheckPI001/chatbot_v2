@@ -193,49 +193,50 @@ UBND_INFO_FIELDS = [
 
 # ---------- UBND: hoi_thu_tuc ----------
 UBND_PROCEDURE_GROUPS = [
-    "tu_phap_ho_tich",
-    "doanh_nghiep",
-    "giao_thong_van_tai",
-    "dat_dai",
-    "xay_dung_nha_o",
-    "dau_tu",
-    "giao_duc_dao_tao",
-    "lao_dong_viec_lam",
-    "bao_hiem_an_sinh",
-    "y_te",
-    "tai_nguyen_moi_truong",
-    "cong_thuong",
-    "van_hoa_the_thao_du_lich",
-    "tai_chinh_thue_phi",
-    "khoa_hoc_cong_nghe",
-    "thong_tin_truyen_thong",
-    "nong_nghiep",
+    # "tu_phap_ho_tich",
+    # "doanh_nghiep",
+    # "giao_thong_van_tai",
+    # "dat_dai",
+    # "xay_dung_nha_o",
+    # "dau_tu",
+    # "giao_duc_dao_tao",
+    # "lao_dong_viec_lam",
+    # "bao_hiem_an_sinh",
+    # "y_te",
+    # "tai_nguyen_moi_truong",
+    # "cong_thuong",
+    # "van_hoa_the_thao_du_lich",
+    # "tai_chinh_thue_phi",
+    # "khoa_hoc_cong_nghe",
+    # "thong_tin_truyen_thong",
+    # "nong_nghiep",
 ]
 
 UBND_PROCEDURE_SPECIAL_CONTEXTS = [
-    "yeu_to_nuoc_ngoai",
-    "uy_quyen",
-    "qua_han_dang_ky",
-    "khu_vuc_bien_gioi",
-    "mat_so_ho_tich_va_ban_chinh",
-    "dang_ky",
-    "dang_ky_lai",
-    "cap_lai",
-    "cap_doi",
-    "cap_ban_sao",
-    "cap_phep",
-    "thay_doi",
-    "bo_sung",
-    "cai_chinh",
-    "thu_hoi",
-    "huy_bo",
-    "xac_nhan",
-    "ghi_vao_so",
-    "ho_tro",
-    "tro_cap",
-    "cham_dut",
-    "tam_ngung",
-    "tiep_tuc"
+    # "yeu_to_nuoc_ngoai",
+    # "uy_quyen",
+    # "qua_han_dang_ky",
+    # "khu_vuc_bien_gioi",
+    # "mat_so_ho_tich_va_ban_chinh",
+    # "tuyen_sinh",
+    # "dang_ky_moi",
+    # "dang_ky_lai",
+    # "cap_lai",
+    # "cap_doi",
+    # "cap_ban_sao",
+    # "cap_phep",
+    # "thay_doi",
+    # "bo_sung",
+    # "cai_chinh",
+    # "thu_hoi",
+    # "huy_bo",
+    # "xac_nhan",
+    # "ghi_vao_so",
+    # "ho_tro",
+    # "tro_cap",
+    # "cham_dut",
+    # "tam_ngung",
+    # "tiep_tuc"
 ]
 
 # =========================================================
@@ -834,9 +835,6 @@ def get_meta_schema_prompt(org_type: str, intent: Optional[str] = None, org_type
         "allowed_intents": allowed_intents,
         "schemas_by_intent": schemas_by_intent,
     }
-
-
-
 
 
 def build_meta_extraction_messages(query: str, org_type: str, intent: str, org_type_is_fallback: bool = False) -> List[dict]:
