@@ -671,25 +671,49 @@ function stopDrag() {
   document.removeEventListener('mouseup', stopDrag)
 }
 
-const sortBy = ref<'text_content' | ''>('')      // hiện tại chỉ sort theo text_content
+type ChunkSortKey = '' | 'text_content' | 'category' | 'subject' | 'intent_type' | 'entity' | 'fields' | 'scope'
+
+const sortBy = ref<ChunkSortKey>('')
 const sortDir = ref<'asc' | 'desc'>('asc')
 
-function toggleSortText() {
-  if (sortBy.value !== 'text_content') {
-    sortBy.value = 'text_content'
+function toggleSortColumn(column: Exclude<ChunkSortKey, ''>) {
+  if (sortBy.value !== column) {
+    sortBy.value = column
     sortDir.value = 'asc'
   } else {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
   }
 }
 
+function getChunkSortValue(item: any, column: Exclude<ChunkSortKey, ''>) {
+  switch (column) {
+    case 'text_content':
+      return (item.text_content ?? '').toString()
+    case 'category':
+      return (item.category ?? '').toString()
+    case 'subject':
+      return (item.subject ?? '').toString()
+    case 'intent_type':
+      return (item.intent_type ?? '').toString()
+    case 'entity':
+      return getEntityText(item.meta_primary)
+    case 'fields':
+      return normalizeModeValues(item.mode_values).join(', ')
+    case 'scope':
+      return (item.scope ?? '').toString()
+    default:
+      return ''
+  }
+}
+
 const sortedFilteredChunks = computed(() => {
   const arr = [...filteredChunks.value] // copy để không mutate computed gốc
-  if (sortBy.value !== 'text_content') return arr
+  const activeSortKey = sortBy.value
+  if (!activeSortKey) return arr
 
   arr.sort((a, b) => {
-    const A = (a.text_content ?? '').toString()
-    const B = (b.text_content ?? '').toString()
+    const A = getChunkSortValue(a, activeSortKey)
+    const B = getChunkSortValue(b, activeSortKey)
 
     // so sánh tiếng Việt ổn hơn
     const cmp = A.localeCompare(B, 'vi', { sensitivity: 'base' })
@@ -1138,14 +1162,6 @@ async function sendMessage() {
           botMessage.thoughts = thoughts
           if (botMessage.isThinking !== false) {
             botMessage.showThoughts = true
-          }
-          return
-        }
-
-        if ('context' in data) {
-          const botMessage = ensureBotMessage()
-          if (botMessage) {
-            botMessage.context = String(data.context || '')
           }
           return
         }
@@ -3169,18 +3185,48 @@ onMounted(() => {
           <thead>
             <tr>
               <th class="col-index">ID</th>
-              <th class="col-content sortable" @click="toggleSortText">
+              <th class="col-content sortable" style="cursor: pointer;" @click="toggleSortColumn('text_content')">
                 Text Content
                 <span v-if="sortBy === 'text_content'">
                   {{ sortDir === 'asc' ? '▲' : '▼' }}
                 </span>
               </th>
-              <th class="col-index">category</th>
-              <th class="col-index">subject</th>
-              <th class="col-index">intent_type</th>
-              <th class="col-index">entity</th>
-              <th class="col-index">fields</th>
-              <th class="col-index">scope</th>
+              <th class="col-index sortable" style="cursor: pointer;" @click="toggleSortColumn('category')">
+                category
+                <span v-if="sortBy === 'category'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th class="col-index sortable" style="cursor: pointer;" @click="toggleSortColumn('subject')">
+                subject
+                <span v-if="sortBy === 'subject'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th class="col-index sortable" style="cursor: pointer;" @click="toggleSortColumn('intent_type')">
+                intent_type
+                <span v-if="sortBy === 'intent_type'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th class="col-index sortable" style="cursor: pointer;" @click="toggleSortColumn('entity')">
+                entity
+                <span v-if="sortBy === 'entity'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th class="col-index sortable" style="cursor: pointer;" @click="toggleSortColumn('fields')">
+                fields
+                <span v-if="sortBy === 'fields'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
+              <th class="col-index sortable" style="cursor: pointer;" @click="toggleSortColumn('scope')">
+                scope
+                <span v-if="sortBy === 'scope'">
+                  {{ sortDir === 'asc' ? '▲' : '▼' }}
+                </span>
+              </th>
               <!-- <th class="col-index">special_contexts</th> -->
               <!-- <th class="col-index">Keywords</th> -->
               <th class="col-index">Actions</th>
