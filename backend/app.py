@@ -4205,33 +4205,41 @@ def chat_stream_v3():
                 yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
                 return
 
+            # context = "\n\n".join(
+            #     f"Tài liệu {i+1}:\n{chunk['text_content']}"
+            #     for i, chunk in enumerate(chunks)
+            # )
+
             context = "\n\n".join(
-                f"Tài liệu {i+1}:\n{chunk['text_content']}"
+                f"**Tài liệu {i+1}**: ({chunk.get('confidence_score', 0):.2f} điểm)\n{chunk['text_content']}"
                 for i, chunk in enumerate(chunks)
             )
 
             yield from emit_log("Anh/chị chờ trong giây lát, đang tổng hợp câu trả lời...", force=True)
 
-            full_answer = ""
-            for token in llm_answer_procedure_stream(user_message, context, prompt_template=answer_procedure_prompt):
-                full_answer += token
+            for token in chunk_text(context):
                 yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
-        
-            answer = full_answer
 
-            end = time.perf_counter()
-            duration = (end - start_flow) * 1000 
-            log_data["tenant_code"] = tenant_code
-            log_data["raw_query"] = origin_mess
-            log_data["expanded_query"] = user_message
-            log_data["answer"]= answer
-            log_data["event_type"] = "normal"
-            log_data["alias_score"]= top_chunk.get("alias_score", 0)
-            log_data["document_score"]= top_score
-            log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
-            log_data["session_chat"]= session_id
-            log_data["response_time_ms"]= round(duration / 1000,2)
-            enqueue_log(log_data)
+            # full_answer = ""
+            # for token in llm_answer_procedure_stream(user_message, context, prompt_template=answer_procedure_prompt):
+            #     full_answer += token
+            #     yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+        
+            # answer = full_answer
+
+            # end = time.perf_counter()
+            # duration = (end - start_flow) * 1000 
+            # log_data["tenant_code"] = tenant_code
+            # log_data["raw_query"] = origin_mess
+            # log_data["expanded_query"] = user_message
+            # log_data["answer"]= answer
+            # log_data["event_type"] = "normal"
+            # log_data["alias_score"]= top_chunk.get("alias_score", 0)
+            # log_data["document_score"]= top_score
+            # log_data["confidence_score"]= top_chunk.get("confidence_score", 0)
+            # log_data["session_chat"]= session_id
+            # log_data["response_time_ms"]= round(duration / 1000,2)
+            # enqueue_log(log_data)
             yield from flush_logs(force=True)
             yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
             return

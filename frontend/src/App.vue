@@ -36,6 +36,63 @@ const TENANT_STORAGE_KEY = 'selected_tenant_code'
 const NULL_TENANT_CODE = 'quoc_gia'
 const ALL_TENANTS_FILTER = '__all_tenants__'
 const ALL_ORGANIZATIONS_FILTER = '__all_organizations__'
+const CHUNK_SCOPE_FILTER_OPTIONS = [
+  { value: 'xa_phuong', label: 'Xã/Phường' },
+  { value: 'tinh_thanh', label: 'Tỉnh/Thành' },
+  { value: 'quoc_gia', label: 'Quốc gia' },
+]
+const UBND_CATEGORY_FILTER_OPTIONS = [
+  { value: 'thong_tin_tong_quan', label: 'Thông tin tổng quan' },
+  { value: 'to_chuc_bo_may', label: 'Tổ chức bộ máy' },
+  { value: 'thu_tuc_hanh_chinh', label: 'Thủ tục hành chính' },
+  { value: 'phan_anh_kien_nghi', label: 'Phản ánh kiện nghị' },
+]
+const UBND_SUBJECT_FILTER_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  thu_tuc_hanh_chinh: [
+    { value: 'tu_phap_ho_tich', label: 'Tư pháp hộ tịch' },
+    { value: 'doanh_nghiep', label: 'Doanh nghiệp' },
+    { value: 'giao_thong_van_tai', label: 'Giao thông vận tải' },
+    { value: 'dat_dai', label: 'Đất đai' },
+    { value: 'xay_dung_nha_o', label: 'Xây dựng nhà ở' },
+    { value: 'dau_tu', label: 'Đầu tư' },
+    { value: 'lao_dong_viec_lam', label: 'Lao động việc làm' },
+    { value: 'bao_hiem_an_sinh', label: 'Bảo hiểm an sinh' },
+    { value: 'giao_duc_dao_tao', label: 'Giáo dục đào tạo' },
+    { value: 'y_te', label: 'Y tế' },
+    { value: 'tai_nguyen_moi_truong', label: 'Tài nguyên môi trường' },
+    { value: 'van_hoa_the_thao_du_lich', label: 'Văn hóa thể thao du lịch' },
+    { value: 'khoa_hoc_cong_nghe', label: 'Khoa học công nghệ' },
+    { value: 'thong_tin_truyen_thong', label: 'Thông tin truyền thông' },
+    { value: 'nong_nghiep', label: 'Nông nghiệp' },
+    { value: 'cong_thuong', label: 'Công thương' },
+    { value: 'tai_chinh_thue_phi', label: 'Tài chính thuế phí' },
+  ],
+  thong_tin_tong_quan: [
+    { value: 'gioi_thieu_dia_phuong', label: 'Giới thiệu địa phương' },
+    { value: 'lich_su_hanh_chinh', label: 'Lịch sử hành chính' },
+    { value: 'dia_ly', label: 'Địa lý' },
+    { value: 'thong_ke', label: 'Thống kê' },
+    { value: 'giao_thong', label: 'Giao thông' },
+    { value: 'lich_lam_viec', label: 'Lịch làm việc' },
+    { value: 'thong_tin_lien_he', label: 'Thông tin liên hệ' },
+  ],
+  to_chuc_bo_may: [
+    { value: 'nhan_su', label: 'Nhân sự' },
+    { value: 'chuc_vu', label: 'Chức vụ' },
+    { value: 'co_cau_to_chuc', label: 'Cơ cấu tổ chức' },
+  ],
+  phan_anh_kien_nghi: [
+    { value: 'ha_tang', label: 'Hạ tầng' },
+    { value: 'moi_truong', label: 'Môi trường' },
+    { value: 'an_ninh_trat_tu', label: 'An ninh trật tự' },
+    { value: 'do_thi', label: 'Đô thị' },
+    { value: 'tien_luong', label: 'Tiền lương' },
+    { value: 'bao_hiem_xa_hoi', label: 'Bảo hiểm xã hội' },
+    { value: 'dieu_kien_lao_dong', label: 'Điều kiện lao động' },
+    { value: 'hop_dong_lao_dong', label: 'Hợp đồng lao động' },
+    { value: 'quyen_loi_nguoi_lao_dong', label: 'Quyền lợi người lao động' },
+  ],
+}
 
 type ChunkSchemaIntentOptions = {
   primaryOptions: string[]
@@ -79,18 +136,23 @@ const CHUNK_EDIT_SCHEMA_OPTIONS: Record<string, ChunkSchemaOptions> = {
         'infrastructure'],
       },
       hoi_nhan_su: {
-        primaryOptions: ['lanh_dao',
+        primaryOptions: [
+        'lanh_dao_ubnd',
+        'lanh_dao_hdnd',
         'chu_tich_hdnd',
         'pho_chu_tich_hdnd',
         'chu_tich_ubnd',
         'pho_chu_tich_ubnd',
         'truong_khu_pho',
         'truong_ap',
-        'cong_chuc_tu_phap_ho_tich',
-        'cong_chuc_dia_chinh',
-        'cong_chuc_van_hoa_xa_hoi',
-        'cong_an_xa',
-        'chi_huy_truong_quan_su'],
+        'truong_phong',
+        'pho_truong_phong',
+        'truong_ban',
+        'pho_truong_ban',
+        'chanh_van_phong',
+        'pho_chanh_van_phong',
+        'giam_doc',
+        'pho_giam_doc'],
         modeOptions: ['identity', 'list', 'contact', 'title', 'count'],
       },
       hoi_thu_tuc: {
@@ -145,7 +207,8 @@ const CHUNK_EDIT_SCHEMA_OPTIONS: Record<string, ChunkSchemaOptions> = {
     allowedIntents: ['tra_cuu_thong_tin', 'hoi_nhan_su', 'sinh_hoat_dang'],
     schemasByIntent: {
       tra_cuu_thong_tin: {
-        primaryOptions: ['organization_overview',
+        primaryOptions: [
+        'organization_overview',
         'organization_structure',
         'party_activity_info',
         'document_info',
@@ -159,7 +222,11 @@ const CHUNK_EDIT_SCHEMA_OPTIONS: Record<string, ChunkSchemaOptions> = {
         'website'],
       },
       hoi_nhan_su: {
-        primaryOptions: ['bi_thu_dang_uy', 'pho_bi_thu_dang_uy', 'lanh_dao_dang_uy'],
+        primaryOptions: ['bi_thu_dang_uy',
+        'pho_bi_thu_dang_uy',
+        'lanh_dao_dang_uy',
+        'uy_vien_dang_uy',
+        'uy_vien_ban_thuong_vu_dang_uy'],
         modeOptions: ['identity', 'list', 'contact', 'title', 'count'],
       },
       sinh_hoat_dang: {
@@ -257,6 +324,7 @@ const CHUNK_EDIT_SCHEMA_OPTIONS: Record<string, ChunkSchemaOptions> = {
       },
       hoi_nhan_su: {
         primaryOptions: ['chu_tich_hoi_phu_nu',
+        'chu_tich_hoi_phu_nu',
         'pho_chu_tich_hoi_phu_nu',
         'ban_chap_hanh_hoi_phu_nu',
         'ban_thuong_vu_hoi_phu_nu',
@@ -1074,6 +1142,14 @@ async function sendMessage() {
           return
         }
 
+        if ('context' in data) {
+          const botMessage = ensureBotMessage()
+          if (botMessage) {
+            botMessage.context = String(data.context || '')
+          }
+          return
+        }
+
         if ('token' in data) {
           const botMessage = ensureBotMessage()
           if (botMessage) {
@@ -1247,6 +1323,7 @@ const categoryFilter = ref<string>('')
 const subjectFilter = ref<string>('')
 const intentFilter = ref<string>('')
 const procedureActionFilter = ref<string>(ALL_ORGANIZATIONS_FILTER)
+const scopeFilter = ref<string>('')
 const typeLogFilter = ref<string>('')
 const editingId = ref<string | null>(null)
 const editingData = ref<any>(null)
@@ -1332,6 +1409,7 @@ const filteredChunks = computed(() => {
     const tenantMatch =
       selectedChunkTenant === ALL_TENANTS_FILTER ||
       normalizeTenantCode(item.tenant_code) === selectedChunkTenant
+    const scopeMatch = !scopeFilter.value || (item.scope || '').toString() === scopeFilter.value
     const categoryMatch = isOrgFilter || !categoryFilter.value || item.category === categoryFilter.value
     const subjectMatch = isOrgFilter || !subjectFilter.value || item.subject === subjectFilter.value
     const procedureActionMatch = matchesOrganizationFilter(item.procedure_action)
@@ -1343,7 +1421,7 @@ const filteredChunks = computed(() => {
         ?.toLowerCase()
         .includes(searchKeyword.value.toLowerCase())
 
-    return chunkIdMatch && tenantMatch && categoryMatch && subjectMatch && procedureActionMatch && intentMatch && keywordMatch
+    return chunkIdMatch && tenantMatch && scopeMatch && categoryMatch && subjectMatch && procedureActionMatch && intentMatch && keywordMatch
   })
 })
 
@@ -1392,37 +1470,6 @@ const filteredTenants = computed(() => {
     .sort((a, b) => a.tenant_code.localeCompare(b.tenant_code, 'vi', { sensitivity: 'base' }))
 })
 
-const tenantScopeMap = computed(() => {
-  const map = new Map<string, string>()
-
-  tenantsData.value.forEach(item => {
-    const tenantCode = normalizeTenantCode(item?.tenant_code)
-    const scope = (item?.scope || '').toString().trim()
-    if (tenantCode && scope) {
-      map.set(tenantCode, scope)
-    }
-  })
-
-  return map
-})
-
-function formatScopeLabel(scope: unknown) {
-  const value = (scope ?? '').toString().trim()
-  if (!value) return 'Quốc gia'
-  if (value === 'xa_phuong') return 'Xã/Phường'
-  if (value === 'tinh_thanh') return 'Tỉnh/Thành'
-  if (value === 'quoc_gia') return 'Quốc gia'
-  return value
-}
-
-function getChunkTenantScope(item: any) {
-  const tenantCode = normalizeTenantCode(item?.tenant_code)
-  const tenantScope = tenantScopeMap.value.get(tenantCode)
-  if (tenantScope) return formatScopeLabel(tenantScope)
-
-  const chunkScope = (item?.scope || '').toString().trim()
-  return formatScopeLabel(chunkScope)
-}
 
 function normalizeModeValues(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -1494,10 +1541,6 @@ function parseEntityInput(value: unknown): unknown {
   return raw
 }
 
-function isUbndOrganization(value: unknown) {
-  return !(value ?? '').toString().trim()
-}
-
 const isOrganizationMode = computed(() => {
   return true
 })
@@ -1539,6 +1582,14 @@ const showIntentFilter = computed(() => {
   return Boolean(selectedOrganizationType)
 })
 
+const ubndSubjectOptionsForFilter = computed(() => {
+  if (categoryFilter.value && categoryFilter.value in UBND_SUBJECT_FILTER_OPTIONS) {
+    return UBND_SUBJECT_FILTER_OPTIONS[categoryFilter.value] ?? []
+  }
+
+  return Object.values(UBND_SUBJECT_FILTER_OPTIONS).flat()
+})
+
 watch(procedureActionFilter, () => {
   const selectedOrganizationType = getSelectedOrganizationType()
 
@@ -1550,6 +1601,10 @@ watch(procedureActionFilter, () => {
   }
 
   categoryFilter.value = ''
+  subjectFilter.value = ''
+})
+
+watch(categoryFilter, () => {
   subjectFilter.value = ''
 })
 
@@ -3056,6 +3111,15 @@ onMounted(() => {
           </select>
         </div>
         <div class="filter-group">
+          <label>Scope:</label>
+          <select v-model="scopeFilter" class="filter-select">
+            <option value="">Tất cả</option>
+            <option v-for="scopeOption in CHUNK_SCOPE_FILTER_OPTIONS" :key="scopeOption.value" :value="scopeOption.value">
+              {{ scopeOption.label }}
+            </option>
+          </select>
+        </div>
+        <div class="filter-group">
           <label>Organization:</label>
           <select v-model="procedureActionFilter" class="filter-select">
             <option :value="ALL_ORGANIZATIONS_FILTER">Tất cả</option>
@@ -3067,6 +3131,24 @@ onMounted(() => {
             <option value="dang_uy">Đảng ủy</option>
           </select>
         </div>
+        <div v-if="procedureActionFilter === 'ubnd'" class="filter-group">
+          <label>Category:</label>
+          <select v-model="categoryFilter" class="filter-select">
+            <option value="">Tất cả</option>
+            <option v-for="categoryOption in UBND_CATEGORY_FILTER_OPTIONS" :key="categoryOption.value" :value="categoryOption.value">
+              {{ categoryOption.label }}
+            </option>
+          </select>
+        </div>
+        <div v-if="procedureActionFilter === 'ubnd'" class="filter-group">
+          <label>Subject:</label>
+          <select v-model="subjectFilter" class="filter-select">
+            <option value="">Tất cả</option>
+            <option v-for="subjectOption in ubndSubjectOptionsForFilter" :key="subjectOption.value" :value="subjectOption.value">
+              {{ subjectOption.label }}
+            </option>
+          </select>
+        </div>
         <div class="filter-group" v-if="showIntentFilter">
           <label>Intent:</label>
           <select v-model="intentFilter" class="filter-select">
@@ -3076,7 +3158,7 @@ onMounted(() => {
             </option>
           </select>
         </div>
-        <button class="btn-reset-filter" @click="categoryFilter = ''; subjectFilter = ''; intentFilter = ''; procedureActionFilter = ALL_ORGANIZATIONS_FILTER; exactChunkIdFilter = ''">Xóa bộ lọc</button>
+        <button class="btn-reset-filter" @click="scopeFilter = ''; categoryFilter = ''; subjectFilter = ''; intentFilter = ''; procedureActionFilter = ALL_ORGANIZATIONS_FILTER; exactChunkIdFilter = ''">Xóa bộ lọc</button>
       </div>
       <div v-if="exactChunkIdFilter" class="filter-result" style="background: #eef6ff; color: #1d4ed8;">
         Đang lọc theo chunk ID: {{ exactChunkIdFilter }}
@@ -3093,9 +3175,12 @@ onMounted(() => {
                   {{ sortDir === 'asc' ? '▲' : '▼' }}
                 </span>
               </th>
+              <th class="col-index">category</th>
+              <th class="col-index">subject</th>
               <th class="col-index">intent_type</th>
               <th class="col-index">entity</th>
               <th class="col-index">fields</th>
+              <th class="col-index">scope</th>
               <!-- <th class="col-index">special_contexts</th> -->
               <!-- <th class="col-index">Keywords</th> -->
               <th class="col-index">Actions</th>
@@ -3104,7 +3189,7 @@ onMounted(() => {
 
           <tbody>
             <tr v-if="chunksData.length === 0">
-              <td colspan="7" style="text-align: center; padding: 20px; color: #999;">
+              <td colspan="9" style="text-align: center; padding: 20px; color: #999;">
                 {{ isLoading ? 'Đang tải...' : 'Không có dữ liệu' }}
               </td>
             </tr>
@@ -3125,85 +3210,11 @@ onMounted(() => {
                   v-html="highlightText(item.text_content)"
                 ></div>
               </td>
-              <td v-if="!isOrganizationMode" class="col-index">
-                <div v-if="editingId === item.id" class="edit-input-wrapper">
-                  <select v-model="editingData.category" class="edit-input edit-select">
-                    <option value="">-- Chọn --</option>
-                    <option value="thong_tin_tong_quan">Thông tin tổng quan</option>
-                    <option value="to_chuc_bo_may">Tổ chức bộ máy</option>
-                    <option value="thu_tuc_hanh_chinh">Thủ tục hành chính</option>
-                    <option value="phan_anh_kien_nghi">Phản ánh kiến nghị</option>
-                  </select>
-                </div>
-                <span v-else>{{ item.category || '-' }}</span>
+              <td class="col-index">
+                <span>{{ item.category || '-' }}</span>
               </td>
-              <td v-if="!isOrganizationMode" class="col-index">
-                <div v-if="editingId === item.id">
-                    <div v-if="editingData.category === 'thu_tuc_hanh_chinh'" class="edit-input-wrapper">
-                      <select v-model="editingData.subject" class="edit-input edit-select">
-                        <option value="">-- Chọn --</option>
-                        <option value="tu_phap_ho_tich">Tư pháp hộ tịch</option>
-                        <option value="doanh_nghiep">Doanh nghiệp</option>
-                        <option value="giao_thong_van_tai">Giao thông vận tải</option>
-                        <option value="dat_dai">Đất đai</option>
-                        <option value="xay_dung_nha_o">Xây dựng nhà ở</option>
-                        <option value="dau_tu">Đầu tư</option>
-                        
-                        <option value="lao_dong_viec_lam">Lao động việc làm</option>
-                        <option value="bao_hiem_an_sinh">Bảo hiểm an sinh</option>
-                        <option value="giao_duc_dao_tao">Giáo dục đào tạo</option>
-                        <option value="y_te">Y tế</option>
-                        <option value="tai_nguyen_moi_truong">Tài nguyên môi trường</option>
-                        <option value="van_hoa_the_thao_du_lich">Văn hóa thể thao du lịch</option>
-                        
-                        <option value="khoa_hoc_cong_nghe">Khoa học công nghệ</option>
-                        <option value="thong_tin_truyen_thong">Thông tin truyền thông</option>
-                        <option value="nong_nghiep">Nông nghiệp</option>
-                        <option value="cong_thuong">Công thương</option>
-                        <option value="tai_chinh_thue_phi">Tài chính thuế phí</option>
-                      </select>
-                    </div>
-                    <div v-if="editingData.category === 'thong_tin_tong_quan'" class="edit-input-wrapper">
-                      <select v-model="editingData.subject" class="edit-input edit-select">
-                        <option value="">-- Chọn --</option>
-                        <option value="gioi_thieu_dia_phuong">Giới thiệu địa phương</option>
-                        <option value="lich_su_hanh_chinh">Lịch sử hành chính</option>
-                        <option value="dia_ly">Địa lý</option>
-                        <option value="thong_ke">Thống kê</option>
-                        <option value="co_cau_to_chuc">Cơ cấu tổ chức</option>
-                        <option value="giao_thong">Giao thông</option>
-                        <option value="lich_lam_viec">Lịch làm việc</option>
-                        <option value="thong_tin_lien_he">Thông tin liên hệ</option>
-                        <option value="khu_pho_ap_to_dan_pho">Khu phố/ấp/tổ dân phố</option>
-                        <option value="gioi_thieu_chung">Giới thiệu chung</option>
-                        <option value="chuc_nang_nhiem_vu">Chức năng nhiệm vụ</option>
-                        <option value="hoi_vien_doi_tuong_phuc_vu">Hội viên đối tượng phục vụ</option>
-                        <option value="hoat_dong_phong_trao">Hoạt động phong trào</option>
-                        <option value="chuong_trinh_ho_tro">Chương trình hỗ trợ</option>
-                        <option value="thu_tuc_quy_trinh">Thủ tục quy trình</option>
-                        <option value="quy_dinh_huong_dan">Quy định hướng dẫn</option>
-                      </select>
-                    </div>
-                    <div v-if="editingData.category === 'to_chuc_bo_may'" class="edit-input-wrapper">
-                      <select v-model="editingData.subject" class="edit-input edit-select">
-                        <option value="">-- Chọn --</option>
-                        <option value="nhan_su">Nhân sự</option>
-                        <option value="chuc_vu">Chức vụ</option>
-                      </select>
-                    </div>
-                    <div v-if="editingData.category === 'phan_anh_kien_nghi'" class="edit-input-wrapper">
-                      <select v-model="editingData.subject" class="edit-input edit-select">
-                        <option value="">-- Chọn --</option>
-                        <option value="ha_tang">Hạ tầng</option>
-                        <option value="moi_truong">Môi trường</option>
-                        <option value="an_ninh_trat_tu">An ninh trật tự</option>
-                        <option value="do_thi">Đô thị</option>
-                        <option value="giao_thong">Giao thông</option>
-                        <option value="khieu_nai_to_cao">Khiếu nại tố cáo</option>
-                      </select>
-                    </div>
-                </div>
-                <span v-else>{{ item.subject || '-' }}</span>
+              <td class="col-index">
+                <span>{{ item.subject || '-' }}</span>
               </td>
               
               <td v-if="isOrganizationMode" class="col-index">
@@ -3273,9 +3284,9 @@ onMounted(() => {
                   <span v-else>-</span>
                 </div>
               </td>
-              <!-- <td v-if="isOrganizationMode" class="col-index">
-                <span>{{ getChunkTenantScope(item) }}</span>
-              </td> -->
+              <td class="col-index">
+                <span>{{ item.scope || '-' }}</span>
+              </td>
               <!-- <td class="col-index">
                 <div v-if="editingId === item.id" class="edit-input-wrapper sc-editor">
                   <div v-if="editingData.procedure_action" class="sc-badge-group sc-edit-tags">
@@ -4380,7 +4391,12 @@ body{
   width: 100%;
   border-collapse: collapse;
   table-layout: auto;
-  min-width: 1700px; /* tăng chút cho đủ chỗ */
+  min-width: 1850px; /* cho cột Text Content rộng hơn */
+}
+
+.data-chunks-table .col-content {
+  min-width: 460px;
+  width: 460px;
 }
 
 .col-question {

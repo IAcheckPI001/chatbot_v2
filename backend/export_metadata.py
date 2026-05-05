@@ -78,10 +78,8 @@ NGUYÊN TẮC QUAN TRỌNG
    - "xin bản sao giấy khai sinh" -> "cấp bản sao trích lục hộ tịch"
    - "bán nhà" -> "chuyển nhượng quyền sử dụng đất"
    - "mất cccd" -> "cấp lại CCCD" (vì nó thuộc cơ quan công an)
-   - "ly hôn" -> "giải quyết ly hôn" (vì ly hôn không phải là một thủ tục đăng ký hành chính)
 6. procedure_action là hành động chính người dùng đang hỏi tới, không phải luôn luôn là "dang_ky_moi".
 7. special_contexts chỉ được chọn trong danh sách hợp lệ bên dưới.
-
 
 CÁCH XÁC ĐỊNH procedure_action
 
@@ -162,18 +160,12 @@ Ví dụ:
 
 Câu hỏi: "Mất giấy khai sinh có đăng ký kết hôn được không"
 {{
-    "query_mode": "multi_procedure",
+    "query_mode": "single_procedure",
     "unit": [
         {{
             'procedure': 'đăng ký kết hôn',
             'subject': 'tu_phap_ho_tich',
             'procedure_action': 'dang_ky_moi',
-            'special_contexts': []
-        }}
-        ,{{
-            'procedure': 'đăng ký lại khai sinh',
-            'subject': 'tu_phap_ho_tich',
-            'procedure_action': 'dang_ky_lai',
             'special_contexts': []
         }}
     ]
